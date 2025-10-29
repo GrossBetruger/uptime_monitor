@@ -56,9 +56,11 @@ fn now_unix_and_rfc3339() -> (u64, String) {
     (unix, iso)
 }
 
-fn log_offline(logger_file: &str) -> Result<(), String> {
-    let (unix, iso) = now_unix_and_rfc3339();
-    let line = format!("{} {} offline\n", unix, iso);
+fn log_offline(logger_file: &str, line: &str) -> Result<(), String> {
+    // create file if not exists
+    if ! std::path::Path::new(logger_file).exists() {
+        std::fs::File::create(logger_file).unwrap();
+    }
     std::fs::OpenOptions::new()
         .append(true)
         .open(logger_file)
@@ -207,7 +209,7 @@ fn get_isn_info() -> String {
 
 fn main() {
     let (interval, url) = parse_args();
-    println!("ISP: {}", get_isn_info());
+    let isn_info = get_isn_info();
     let net_timeout = Duration::from_secs(2);
     let logger_file = "offline.log";
     let public_ip = get_public_ip();
@@ -227,7 +229,7 @@ fn main() {
         let online = check_internet(net_timeout);
         let (unix, iso) = now_unix_and_rfc3339();
         let status_text = if online { "online" } else { "offline" };
-        let line = format!("{} {} {} {}\n", unix, iso, public_ip, status_text);
+        let line = format!("{} {} {} {} {}\n", unix, iso, public_ip, isn_info, status_text);
       
         match report_status(&line, &url) {
             Ok(_) => {
@@ -238,10 +240,14 @@ fn main() {
                         sleep(interval);
                     }
                 }
+                // remove offline.log
+                if std::path::Path::new(logger_file).exists() {
+                    std::fs::remove_file(logger_file).unwrap();
+                }
             }
             Err(e) => {
                 eprintln!("[{}] Internet is {} (report failed: {}), public IP: {}", now_unix(), status_text, e, public_ip);
-                log_offline(&logger_file).expect("failed to log offline");
+                log_offline(&logger_file, &line).expect("failed to log offline");
             }
         }
 
