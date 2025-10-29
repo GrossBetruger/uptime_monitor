@@ -48,9 +48,23 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
+fn now_unix_and_rfc3339() -> (u64, String) {
+    let unix = now_unix();
+    let iso = chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    (unix, iso)
+}
+
+fn log_offline(logger_file: &str) -> Result<(), String> {
+    let (unix, iso) = now_unix_and_rfc3339();
+    let line = format!("{} {} offline\n", unix, iso);
+    std::fs::write(logger_file, line).map_err(|e| format!("failed to write offline log: {e}"))?;
+    Ok(())
+}
+
 fn report_status(url: &str, online: bool, timeout: std::time::Duration) -> Result<(), String> {
     let status = if online { "online" } else { "offline" };
-    let line = format!("{} {}\n", now_unix(), status);
+    let (unix, iso) = now_unix_and_rfc3339();
+    let line = format!("{} {} {}\n", unix, iso, status);
 
     // Support either `gist://<ID>/status.txt` or `https://api.github.com/gists/<ID>`
     if let Some(rest) = url.strip_prefix("gist://") {
@@ -152,7 +166,12 @@ fn main() {
     let (interval, url) = parse_args();
     let net_timeout = Duration::from_secs(2);
     let http_timeout = Duration::from_secs(5);
-
+    let logger_file = "offline.log";
+    // init logger file
+    if std::path::Path::new(logger_file).exists() {
+        std::fs::write(logger_file, "").unwrap();
+    }
+    
     println!(
         "Starting uptime monitor: check every {}s; reporting to {}",
         interval.as_secs(),
@@ -166,7 +185,10 @@ fn main() {
 
         match report_status(&url, online, http_timeout) {
             Ok(_) => println!("[{}] Internet is {} (reported)", now_unix(), status_text),
-            Err(e) => eprintln!("[{}] Internet is {} (report failed: {})", now_unix(), status_text, e),
+            Err(e) => {
+                eprintln!("[{}] Internet is {} (report failed: {})", now_unix(), status_text, e);
+                log_offline(&logger_file).expect("failed to log offline");
+            }
         }
 
         sleep(interval);
