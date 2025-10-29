@@ -48,38 +48,105 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
-fn report_status(url: &str, online: bool, timeout: Duration) -> Result<(), String> {
-    #[derive(serde::Serialize)]
-    struct Payload<'a> {
-        timestamp: u64,
-        status: &'a str,
+fn report_status(url: &str, online: bool, timeout: std::time::Duration) -> Result<(), String> {
+    let status = if online { "online" } else { "offline" };
+    let line = format!("{} {}\n", now_unix(), status);
+
+    // Support either `gist://<ID>/status.txt` or `https://api.github.com/gists/<ID>`
+    if let Some(rest) = url.strip_prefix("gist://") {
+        return report_status_gist(rest, "status.txt", &line, timeout);
+    }
+    if url.starts_with("https://api.github.com/gists/") {
+        // Extract gist id from API URL
+        let gist_id = url.trim_end_matches('/').rsplit('/').next().unwrap_or("");
+        return report_status_gist(gist_id, "status.txt", &line, timeout);
     }
 
-    let status = if online { "online" } else { "offline" };
-    let payload = Payload {
-        timestamp: now_unix(),
-        status,
-    };
+    // Fallback: generic plain-text POST
+    let client = reqwest::blocking::Client::builder()
+        .timeout(timeout)
+        .build()
+        .map_err(|e| format!("failed to build http client: {e}"))?;
+    let resp = client
+        .post(url)
+        .header(reqwest::header::CONTENT_TYPE, "text/plain")
+        .body(line)
+        .send()
+        .map_err(|e| format!("http post failed: {e}"))?;
+    if resp.status().is_success() { Ok(()) } else {
+        let code = resp.status();
+        let text = resp.text().unwrap_or_else(|_| "<no body>".into());
+        Err(format!("server responded with {}: {}", code, text))
+    }
+}
 
-    // Build a small blocking client with a timeout
+fn report_status_gist(gist_id: &str, file_name: &str, line: &str, timeout: std::time::Duration) -> Result<(), String> {
+    use serde::{Deserialize, Serialize};
+    use std::collections::HashMap;
+
+    let token = std::env::var("GIST_TOKEN")
+        .map_err(|_| "missing GIST_TOKEN env var (GitHub PAT with 'gist' scope)".to_string())?;
+
     let client = reqwest::blocking::Client::builder()
         .timeout(timeout)
         .build()
         .map_err(|e| format!("failed to build http client: {e}"))?;
 
-    let resp = client
-        .post(url)
-        .json(&payload)
-        .send()
-        .map_err(|e| format!("http post failed: {e}"))?;
+    // --- 1) GET current gist to read existing content (if any) ---
+    #[derive(Deserialize)]
+    struct GistFile { content: Option<String>, truncated: Option<bool> }
+    #[derive(Deserialize)]
+    struct Gist { files: HashMap<String, GistFile> }
 
-    // Consider any 2xx a success
-    if resp.status().is_success() {
+    let get_url = format!("https://api.github.com/gists/{}", gist_id);
+    let gist_resp = client
+        .get(&get_url)
+        .header(reqwest::header::USER_AGENT, "uptime-monitor/0.3")
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .bearer_auth(&token)
+        .send()
+        .map_err(|e| format!("gist GET failed: {e}"))?;
+    if !gist_resp.status().is_success() {
+        let code = gist_resp.status();
+        let body = gist_resp.text().unwrap_or_default();
+        return Err(format!("gist GET {}: {}", code, body));
+    }
+    let gist: Gist = gist_resp.json().map_err(|e| format!("gist GET parse failed: {e}"))?;
+
+    let mut current = gist.files.get(file_name).and_then(|f| f.content.clone()).unwrap_or_default();
+    if !current.is_empty() && !current.ends_with('\n') { current.push('\n'); }
+    current.push_str(line);
+
+    // --- 2) PATCH updated content back ---
+    #[derive(Serialize)]
+    struct GistUpdateFile { content: String }
+    #[derive(Serialize)]
+    struct GistUpdate { files: HashMap<String, GistUpdateFile> }
+
+    let mut files = HashMap::new();
+    files.insert(file_name.to_string(), GistUpdateFile { content: current });
+    let update = GistUpdate { files };
+
+    let patch_resp = client
+        .patch(&get_url)
+        .header(reqwest::header::USER_AGENT, "uptime-monitor/0.3")
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .bearer_auth(&token)
+        .json(&update)
+        .send()
+        .map_err(|e| format!("gist PATCH failed: {e}"))?;
+
+    if patch_resp.status().is_success() {
         Ok(())
     } else {
-        Err(format!("server responded with {}", resp.status()))
+        let code = patch_resp.status();
+        let body = patch_resp.text().unwrap_or_default();
+        Err(format!("gist PATCH {}: {}", code, body))
     }
 }
+
 
 fn main() {
     let (interval, url) = parse_args();
