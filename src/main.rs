@@ -182,8 +182,30 @@ fn get_public_ip() -> String {
     ip_response.ip
 }
 
+fn get_isn_info() -> String {
+    use serde::Deserialize;
+    #[derive(Deserialize)]
+    struct Data {
+        connection: Connection,
+    }
+    #[derive(Deserialize)]
+    struct Connection {
+        org: String,
+    }
+    #[derive(Deserialize)]
+    struct IsnResponse {
+        data: Data,
+    }
+    let client = reqwest::blocking::Client::new();
+    let resp = client.get("https://api.ipwho.org/me").send().unwrap();
+    let isn_response: IsnResponse = resp.json().unwrap();
+    isn_response.data.connection.org
+}
+
+
 fn main() {
     let (interval, url) = parse_args();
+    println!("ISP: {}", get_isn_info());
     let net_timeout = Duration::from_secs(2);
     let logger_file = "offline.log";
     let public_ip = get_public_ip();
