@@ -61,10 +61,10 @@ fn log_offline(logger_file: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn report_status(url: &str, online: bool, timeout: std::time::Duration) -> Result<(), String> {
+fn report_status(url: &str, online: bool, timeout: std::time::Duration, public_ip: &str) -> Result<(), String> {
     let status = if online { "online" } else { "offline" };
     let (unix, iso) = now_unix_and_rfc3339();
-    let line = format!("{} {} {}\n", unix, iso, status);
+    let line = format!("{} {} {} {}\n", unix, iso, public_ip, status);
 
     // Support either `gist://<ID>/status.txt` or `https://api.github.com/gists/<ID>`
     if let Some(rest) = url.strip_prefix("gist://") {
@@ -161,12 +161,26 @@ fn report_status_gist(gist_id: &str, file_name: &str, line: &str, timeout: std::
     }
 }
 
+fn get_public_ip() -> String {
+    use serde::Deserialize;
+    
+    #[derive(Deserialize)]
+    struct IpResponse {
+        ip: String,
+    }
+    
+    let client = reqwest::blocking::Client::new();
+    let resp = client.get("https://api.ipify.org?format=json").send().unwrap();
+    let ip_response: IpResponse = resp.json().unwrap();
+    ip_response.ip
+}
 
 fn main() {
     let (interval, url) = parse_args();
     let net_timeout = Duration::from_secs(2);
     let http_timeout = Duration::from_secs(5);
     let logger_file = "offline.log";
+    let public_ip = get_public_ip();
     // init logger file
     if std::path::Path::new(logger_file).exists() {
         std::fs::write(logger_file, "").unwrap();
@@ -183,10 +197,10 @@ fn main() {
         let online = check_internet(net_timeout);
         let status_text = if online { "online" } else { "offline" };
 
-        match report_status(&url, online, http_timeout) {
-            Ok(_) => println!("[{}] Internet is {} (reported)", now_unix(), status_text),
+        match report_status(&url, online, http_timeout, &public_ip) {
+            Ok(_) => println!("[{}] Internet is {} (reported), public IP: {}", now_unix(), status_text, public_ip),
             Err(e) => {
-                eprintln!("[{}] Internet is {} (report failed: {})", now_unix(), status_text, e);
+                eprintln!("[{}] Internet is {} (report failed: {}), public IP: {}", now_unix(), status_text, e, public_ip);
                 log_offline(&logger_file).expect("failed to log offline");
             }
         }
