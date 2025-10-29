@@ -3,6 +3,8 @@ use std::net::{SocketAddr, TcpStream};
 use std::process::exit;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::io::Write;
+
 
 fn usage_and_exit() -> ! {
     eprintln!("Usage: uptime_monitor <interval_seconds> <report_url>");
@@ -57,46 +59,51 @@ fn now_unix_and_rfc3339() -> (u64, String) {
 fn log_offline(logger_file: &str) -> Result<(), String> {
     let (unix, iso) = now_unix_and_rfc3339();
     let line = format!("{} {} offline\n", unix, iso);
-    std::fs::write(logger_file, line).map_err(|e| format!("failed to write offline log: {e}"))?;
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(logger_file)
+        .and_then(|mut file| file.write_all(line.as_bytes()))
+        .map_err(|e| format!("failed to write offline log: {e}"))?;
+
     Ok(())
 }
 
-fn report_status(url: &str, online: bool, timeout: std::time::Duration, public_ip: &str) -> Result<(), String> {
-    let status = if online { "online" } else { "offline" };
-    let (unix, iso) = now_unix_and_rfc3339();
-    let line = format!("{} {} {} {}\n", unix, iso, public_ip, status);
-
+fn report_status(line: &str, url: &str) -> Result<(), String> {
     // Support either `gist://<ID>/status.txt` or `https://api.github.com/gists/<ID>`
     if let Some(rest) = url.strip_prefix("gist://") {
-        return report_status_gist(rest, "status.txt", &line, timeout);
+        return report_status_gist(rest, "status.txt", &line);
     }
+
     if url.starts_with("https://api.github.com/gists/") {
         // Extract gist id from API URL
         let gist_id = url.trim_end_matches('/').rsplit('/').next().unwrap_or("");
-        return report_status_gist(gist_id, "status.txt", &line, timeout);
+        return report_status_gist(gist_id, "status.txt", &line);
     }
 
-    // Fallback: generic plain-text POST
-    let client = reqwest::blocking::Client::builder()
-        .timeout(timeout)
-        .build()
-        .map_err(|e| format!("failed to build http client: {e}"))?;
-    let resp = client
-        .post(url)
-        .header(reqwest::header::CONTENT_TYPE, "text/plain")
-        .body(line)
-        .send()
-        .map_err(|e| format!("http post failed: {e}"))?;
-    if resp.status().is_success() { Ok(()) } else {
-        let code = resp.status();
-        let text = resp.text().unwrap_or_else(|_| "<no body>".into());
-        Err(format!("server responded with {}: {}", code, text))
-    }
+    // // Fallback: generic plain-text POST
+    // let client = reqwest::blocking::Client::builder()
+    //     .timeout(timeout)
+    //     .build()
+    //     .map_err(|e| format!("failed to build http client: {e}"))?;
+    // let resp = client
+    //     .post(url)
+    //     .header(reqwest::header::CONTENT_TYPE, "text/plain")
+    //     .body(line)
+    //     .send()
+    //     .map_err(|e| format!("http post failed: {e}"))?;
+    // if resp.status().is_success() { Ok(()) } else {
+    //     let code = resp.status();
+    //     let text = resp.text().unwrap_or_else(|_| "<no body>".into());
+    //     Err(format!("server responded with {}: {}", code, text))
+    // }
+    Ok(())
 }
+fn report_status_gist(gist_id: &str, file_name: &str, line: &str) -> Result<(), String> {
 
-fn report_status_gist(gist_id: &str, file_name: &str, line: &str, timeout: std::time::Duration) -> Result<(), String> {
     use serde::{Deserialize, Serialize};
     use std::collections::HashMap;
+
+    let timeout = Duration::from_secs(3);
 
     let token = std::env::var("GIST_TOKEN")
         .map_err(|_| "missing GIST_TOKEN env var (GitHub PAT with 'gist' scope)".to_string())?;
@@ -178,7 +185,6 @@ fn get_public_ip() -> String {
 fn main() {
     let (interval, url) = parse_args();
     let net_timeout = Duration::from_secs(2);
-    let http_timeout = Duration::from_secs(5);
     let logger_file = "offline.log";
     let public_ip = get_public_ip();
     // init logger file
@@ -195,9 +201,10 @@ fn main() {
 
     loop {
         let online = check_internet(net_timeout);
+        let (unix, iso) = now_unix_and_rfc3339();
         let status_text = if online { "online" } else { "offline" };
-
-        match report_status(&url, online, http_timeout, &public_ip) {
+        let line = format!("{} {} {} {}\n", unix, iso, public_ip, status_text);
+        match report_status(&line, &url) {
             Ok(_) => println!("[{}] Internet is {} (reported), public IP: {}", now_unix(), status_text, public_ip),
             Err(e) => {
                 eprintln!("[{}] Internet is {} (report failed: {}), public IP: {}", now_unix(), status_text, e, public_ip);
