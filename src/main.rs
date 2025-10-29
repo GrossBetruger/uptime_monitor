@@ -204,8 +204,17 @@ fn main() {
         let (unix, iso) = now_unix_and_rfc3339();
         let status_text = if online { "online" } else { "offline" };
         let line = format!("{} {} {} {}\n", unix, iso, public_ip, status_text);
+      
         match report_status(&line, &url) {
-            Ok(_) => println!("[{}] Internet is {} (reported), public IP: {}", now_unix(), status_text, public_ip),
+            Ok(_) => {
+                println!("[{}] Internet is {} (reported), public IP: {}", now_unix(), status_text, public_ip);
+                if std::path::Path::new(logger_file).exists() {
+                    for line in std::fs::read_to_string(logger_file).unwrap().lines() {
+                        report_status(&line, &url).unwrap();
+                        sleep(interval);
+                    }
+                }
+            }
             Err(e) => {
                 eprintln!("[{}] Internet is {} (report failed: {}), public IP: {}", now_unix(), status_text, e, public_ip);
                 log_offline(&logger_file).expect("failed to log offline");
@@ -214,5 +223,6 @@ fn main() {
 
         sleep(interval);
     }
+
 }
 
