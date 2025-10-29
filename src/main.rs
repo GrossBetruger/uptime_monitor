@@ -81,23 +81,25 @@ fn report_status(line: &str, url: &str) -> Result<(), String> {
     }
 
     // // Fallback: generic plain-text POST
-    // let client = reqwest::blocking::Client::builder()
-    //     .timeout(timeout)
-    //     .build()
-    //     .map_err(|e| format!("failed to build http client: {e}"))?;
-    // let resp = client
-    //     .post(url)
-    //     .header(reqwest::header::CONTENT_TYPE, "text/plain")
-    //     .body(line)
-    //     .send()
-    //     .map_err(|e| format!("http post failed: {e}"))?;
-    // if resp.status().is_success() { Ok(()) } else {
-    //     let code = resp.status();
-    //     let text = resp.text().unwrap_or_else(|_| "<no body>".into());
-    //     Err(format!("server responded with {}: {}", code, text))
-    // }
-    Ok(())
+    let timeout = Duration::from_secs(3);
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(timeout)
+        .build()
+        .map_err(|e| format!("failed to build http client: {e}"))?;
+    let resp = client
+        .get(url)
+        .header(reqwest::header::CONTENT_TYPE, "text/plain")
+        .body(line.to_string())
+        .send()
+        .map_err(|e| format!("http get failed: {e}"))?;
+    if resp.status().is_success() { Ok(()) } else {
+        let code = resp.status();
+        let text = resp.text().unwrap_or_else(|_| "<no body>".into());
+        Err(format!("server responded with {}: {}", code, text))
+    }
 }
+
 fn report_status_gist(gist_id: &str, file_name: &str, line: &str) -> Result<(), String> {
 
     use serde::{Deserialize, Serialize};
