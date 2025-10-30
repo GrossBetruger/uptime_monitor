@@ -27,7 +27,7 @@ fn parse_args() -> (Duration, String) {
     (Duration::from_secs(secs), url)
 }
 
-fn check_internet(timeout: Duration) -> bool {
+fn is_internet_up(timeout: Duration) -> bool {
     // Well-known public DNS servers (using IPs avoids relying on DNS)
     let targets: [SocketAddr; 3] = [
         "1.1.1.1:53".parse().unwrap(),
@@ -124,10 +124,6 @@ fn get_isn_info() -> String {
     isn_response.data.connection.org
 }
 
-fn is_internet_up() -> bool {
-    let net_timeout = Duration::from_secs(2);
-    check_internet(net_timeout)
-}
 
 fn report_main(logger_file: &str, url: &str, public_ip: &str, isn_info: &str) {
     let (unix, iso) = now_unix_and_rfc3339();
@@ -173,10 +169,11 @@ fn main() {
         &url
     );
     println!("Press Ctrl+C to stop.");
+    let net_timeout = Duration::from_secs(2);
 
     loop {
-
-        match is_internet_up() {
+        
+        match is_internet_up(net_timeout) {
             true => report_main(logger_file, &url, &public_ip, &isn_info),
             false => {
                 let (unix, iso) = now_unix_and_rfc3339();
