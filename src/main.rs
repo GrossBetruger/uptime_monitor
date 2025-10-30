@@ -21,7 +21,7 @@ fn _create_users_csv() -> PolarsResult<()> {
     // Name must be PlSmallStr on 0.51 => "user".into()
     let users = Series::new(
         "user".into(),
-        &["OrenK", "DanGo", "OriA", "Drier", "MichaelZ"],
+        &["OrenK", "DanGo", "OriA", "Drier", "MichaelZ", "Tomer"],
     );
 
     // DataFrame::new takes Vec<Column>, so Series -> Column with .into()
