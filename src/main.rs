@@ -124,11 +124,42 @@ fn get_isn_info() -> String {
     isn_response.data.connection.org
 }
 
+fn is_internet_up() -> bool {
+    let net_timeout = Duration::from_secs(2);
+    check_internet(net_timeout)
+}
+
+fn report_main(logger_file: &str, url: &str, public_ip: &str, isn_info: &str) {
+    let (unix, iso) = now_unix_and_rfc3339();
+    let status_text = "online";
+    let line = format!("{} {} {} {} {}\n", unix, iso, public_ip, isn_info, status_text);
+    
+    match report_status(&line, &url) {
+        Ok(_) => {
+            println!("[{}] Internet is {} (reported), public IP: {}", now_unix(), status_text, public_ip);
+            if std::path::Path::new(logger_file).exists() {
+                for line in std::fs::read_to_string(logger_file).unwrap().lines() {
+                    report_status(&line, &url).unwrap();
+                    println!("{}", line);
+                    // sleep(Duration::from_secs(1));
+                }
+            }
+            // remove offline.log
+            if std::path::Path::new(logger_file).exists() {
+                std::fs::remove_file(logger_file).unwrap();
+            }
+        }
+        Err(e) => {
+            eprintln!("[{}] Internet is {} (report failed: {}), public IP: {}", now_unix(), status_text, e, public_ip);
+            // log_offline(&logger_file, &line).expect("failed to log offline");
+        }
+    }
+}
+
 
 fn main() {
     let (interval, url) = parse_args();
     let isn_info = get_isn_info();
-    let net_timeout = Duration::from_secs(2);
     let logger_file = "offline.log";
     let public_ip = get_public_ip();
     // init logger file
@@ -139,35 +170,22 @@ fn main() {
     println!(
         "Starting uptime monitor: check every {}s; reporting to {}",
         interval.as_secs(),
-        url
+        &url
     );
     println!("Press Ctrl+C to stop.");
 
     loop {
-        let online = check_internet(net_timeout);
-        let (unix, iso) = now_unix_and_rfc3339();
-        let status_text = if online { "online" } else { "offline" };
-        let line = format!("{} {} {} {} {}\n", unix, iso, public_ip, isn_info, status_text);
-      
-        match report_status(&line, &url) {
-            Ok(_) => {
-                println!("[{}] Internet is {} (reported), public IP: {}", now_unix(), status_text, public_ip);
-                if std::path::Path::new(logger_file).exists() {
-                    for line in std::fs::read_to_string(logger_file).unwrap().lines() {
-                        report_status(&line, &url).unwrap();
-                        sleep(interval);
-                    }
-                }
-                // remove offline.log
-                if std::path::Path::new(logger_file).exists() {
-                    std::fs::remove_file(logger_file).unwrap();
-                }
-            }
-            Err(e) => {
-                eprintln!("[{}] Internet is {} (report failed: {}), public IP: {}", now_unix(), status_text, e, public_ip);
-                log_offline(&logger_file, &line).expect("failed to log offline");
+
+        match is_internet_up() {
+            true => report_main(logger_file, &url, &public_ip, &isn_info),
+            false => {
+                let (unix, iso) = now_unix_and_rfc3339();
+                let offline_line = format!("{} {} {} {} {}\n", unix, iso, public_ip, isn_info, "offline");
+                eprintln!("[{}] Internet is offline (logged locally to be reported later)", now_unix());
+                log_offline(&logger_file, &offline_line).expect("failed to log offline");
             }
         }
+     
 
         sleep(interval);
     }
