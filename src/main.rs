@@ -71,7 +71,7 @@ fn log_offline(logger_file: &str, line: &str) -> Result<(), String> {
 }
 
 fn report_status(line: &str, url: &str) -> Result<(), String> {
-    let timeout = Duration::from_secs(3);
+    let timeout = Duration::from_secs(5);
 
     let client = reqwest::blocking::Client::builder()
         .timeout(timeout)
