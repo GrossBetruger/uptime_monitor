@@ -8,18 +8,22 @@ use std::net::{SocketAddr, TcpStream};
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+
 #[derive(Parser, Debug)]
 #[command(name = "uptime_monitor")]
 #[command(about = "Monitors internet uptime and reports status to a URL")]
 #[command(version)]
 struct Args {
     /// Interval in seconds between checks (must be at least 1)
-    #[arg(short, long, value_name = "INTERVAL_SECONDS", value_parser = clap::value_parser!(u64).range(1..))]
+    #[arg(short, long, value_name = "INTERVAL_SECONDS", value_parser = clap::value_parser!(u64).range(1..), default_value = "1")]
     interval_seconds: u64,
 
     /// URL to report status to
-    #[arg(short, long, value_name = "REPORT_URL")]
+    #[arg(short, long, value_name = "REPORT_URL", default_value = "http://34.55.225.231:3000/ingest")]
     report_url: String,
+
+    #[arg(short, long, value_name = "USER", default_value = "OrenK")]
+    user: String
 }
 
 fn _create_users_csv() -> PolarsResult<()> {
@@ -28,7 +32,7 @@ fn _create_users_csv() -> PolarsResult<()> {
     // Name must be PlSmallStr on 0.51 => "user".into()
     let users = Series::new(
         "user".into(),
-        &["OrenK", "DanGo", "OriA", "Drier", "MichaelZ", "Tomer", "NisimY"],
+        &["OrenK", "DanGo", "OriA", "Drier", "MichaelZ", "TomerB", "NisimY"],
     );
 
     // DataFrame::new takes Vec<Column>, so Series -> Column with .into()
@@ -43,9 +47,9 @@ fn _create_users_csv() -> PolarsResult<()> {
     Ok(())
 }
 
-fn parse_args() -> (Duration, String) {
+fn parse_args() -> (Duration, String, String) {
     let args = Args::parse();
-    (Duration::from_secs(args.interval_seconds), args.report_url)
+    (Duration::from_secs(args.interval_seconds), args.report_url, args.user)
 }
 
 fn is_internet_up(timeout: Duration) -> bool {
@@ -210,9 +214,9 @@ fn users_series_from_url(url: &str) -> Result<Series, Box<dyn std::error::Error>
 }
 
 fn main() {
-    // _create_users_csv().unwrap();
+    _create_users_csv().unwrap();
 
-    let (interval, url) = parse_args();
+    let (interval, url, user_arg) = parse_args();
 
     let known_users: Series = users_series_from_url(
         "https://raw.githubusercontent.com/GrossBetruger/uptime_monitor/refs/heads/main/users.csv",
@@ -221,7 +225,9 @@ fn main() {
     let df = DataFrame::new(vec![known_users.clone().into()]).unwrap(); // Cast to df for pretty printing
     println!("Known users:\n{df:?}");
 
-    let user_name = prompt_user_name();
+    // let user_name = prompt_user_name();
+    let user_name = user_arg;
+    
     match known_users.str().unwrap().equal(user_name.as_str()).any() {
         true => {
             println!("User: {} connected!", user_name);
