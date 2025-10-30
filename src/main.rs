@@ -270,3 +270,65 @@ fn main() {
         sleep(interval);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rfc3339_to_unix(rfc3339_str: &str) -> Result<u64, String> {
+        chrono::DateTime::parse_from_rfc3339(rfc3339_str)
+            .map(|dt| dt.timestamp() as u64)
+            .map_err(|e| format!("Failed to parse RFC3339 string: {}", e))
+    }
+
+    #[test]
+    fn test_get_public_ip() {
+        let ip = get_public_ip();
+        assert!(!ip.is_empty());
+    }
+
+    #[test]
+    fn test_get_isn_info() {
+        let isn_info = get_isn_info();
+        assert!(!isn_info.is_empty());
+    }
+
+    #[test]
+    fn test_report_main() {
+        let logger_file = "offline.log";
+        let url = "https://api.github.com/gists/628c7bbc22cbc46b97e4d343059eeac7";
+        let user_name = "OrenK";
+        let public_ip = "127.0.0.1";
+        let isn_info = "Israel";
+        report_main(logger_file, &url, &user_name, &public_ip, &isn_info);
+    }
+
+    #[test]
+    fn test_users_series_from_url() {
+        let url = "https://raw.githubusercontent.com/GrossBetruger/uptime_monitor/refs/heads/main/users.csv";
+        let users_series = users_series_from_url(url).unwrap();
+        assert!(!users_series.is_empty());
+    }
+
+    #[test]
+    fn test_log_offline() {
+        let logger_file = "test_logger.log";
+        let line = "1730336000 2025-02-28T12:53:20+02:00 OrenK 127.0.0.1 Israel online\n";
+        log_offline(logger_file, &line).unwrap();
+        assert!(std::path::Path::new(logger_file).exists());
+        std::fs::remove_file(logger_file).unwrap();
+    }
+
+    #[test]
+    fn test_is_internet_up() {
+        let result = is_internet_up(Duration::from_secs(2));
+        assert!(result);
+    }
+
+    #[test]
+    fn test_now_unix_and_rfc3339() {
+        let (unix, iso): (u64, String) = now_unix_and_rfc3339();
+        let unix_timestamp = rfc3339_to_unix(&iso).unwrap();
+        assert_eq!(unix, unix_timestamp);
+    }
+}
