@@ -71,18 +71,6 @@ fn log_offline(logger_file: &str, line: &str) -> Result<(), String> {
 }
 
 fn report_status(line: &str, url: &str) -> Result<(), String> {
-    // Support either `gist://<ID>/status.txt` or `https://api.github.com/gists/<ID>`
-    if let Some(rest) = url.strip_prefix("gist://") {
-        return report_status_gist(rest, "status.txt", &line);
-    }
-
-    if url.starts_with("https://api.github.com/gists/") {
-        // Extract gist id from API URL
-        let gist_id = url.trim_end_matches('/').rsplit('/').next().unwrap_or("");
-        return report_status_gist(gist_id, "status.txt", &line);
-    }
-
-    // // Fallback: generic plain-text POST
     let timeout = Duration::from_secs(3);
 
     let client = reqwest::blocking::Client::builder()
@@ -99,76 +87,6 @@ fn report_status(line: &str, url: &str) -> Result<(), String> {
         let code = resp.status();
         let text = resp.text().unwrap_or_else(|_| "<no body>".into());
         Err(format!("server responded with {}: {}", code, text))
-    }
-}
-
-fn report_status_gist(gist_id: &str, file_name: &str, line: &str) -> Result<(), String> {
-
-    use serde::{Deserialize, Serialize};
-    use std::collections::HashMap;
-
-    let timeout = Duration::from_secs(3);
-
-    let token = std::env::var("GIST_TOKEN")
-        .map_err(|_| "missing GIST_TOKEN env var (GitHub PAT with 'gist' scope)".to_string())?;
-
-    let client = reqwest::blocking::Client::builder()
-        .timeout(timeout)
-        .build()
-        .map_err(|e| format!("failed to build http client: {e}"))?;
-
-    // --- 1) GET current gist to read existing content (if any) ---
-    #[derive(Deserialize)]
-    struct GistFile { content: Option<String>, truncated: Option<bool> }
-    #[derive(Deserialize)]
-    struct Gist { files: HashMap<String, GistFile> }
-
-    let get_url = format!("https://api.github.com/gists/{}", gist_id);
-    let gist_resp = client
-        .get(&get_url)
-        .header(reqwest::header::USER_AGENT, "uptime-monitor/0.3")
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .bearer_auth(&token)
-        .send()
-        .map_err(|e| format!("gist GET failed: {e}"))?;
-    if !gist_resp.status().is_success() {
-        let code = gist_resp.status();
-        let body = gist_resp.text().unwrap_or_default();
-        return Err(format!("gist GET {}: {}", code, body));
-    }
-    let gist: Gist = gist_resp.json().map_err(|e| format!("gist GET parse failed: {e}"))?;
-
-    let mut current = gist.files.get(file_name).and_then(|f| f.content.clone()).unwrap_or_default();
-    if !current.is_empty() && !current.ends_with('\n') { current.push('\n'); }
-    current.push_str(line);
-
-    // --- 2) PATCH updated content back ---
-    #[derive(Serialize)]
-    struct GistUpdateFile { content: String }
-    #[derive(Serialize)]
-    struct GistUpdate { files: HashMap<String, GistUpdateFile> }
-
-    let mut files = HashMap::new();
-    files.insert(file_name.to_string(), GistUpdateFile { content: current });
-    let update = GistUpdate { files };
-
-    let patch_resp = client
-        .patch(&get_url)
-        .header(reqwest::header::USER_AGENT, "uptime-monitor/0.3")
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .bearer_auth(&token)
-        .json(&update)
-        .send()
-        .map_err(|e| format!("gist PATCH failed: {e}"))?;
-
-    if patch_resp.status().is_success() {
-        Ok(())
-    } else {
-        let code = patch_resp.status();
-        let body = patch_resp.text().unwrap_or_default();
-        Err(format!("gist PATCH {}: {}", code, body))
     }
 }
 
