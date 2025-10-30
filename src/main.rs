@@ -4,6 +4,10 @@ use std::process::exit;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::io::Write;
+use polars::prelude::*;
+use polars::prelude::CsvReadOptions; 
+use std::fs::File;
+
 
 
 fn usage_and_exit() -> ! {
@@ -11,6 +15,23 @@ fn usage_and_exit() -> ! {
     eprintln!("Example: uptime_monitor 5 https://webhook.site/your-id");
     exit(1);
 }
+
+fn create_users_csv() -> PolarsResult<()> {
+     // Name must be PlSmallStr on 0.51 => "user".into()
+     let users = Series::new("user".into(), &["OrenK", "DanGo", "OriA"]);
+
+     // DataFrame::new takes Vec<Column>, so Series -> Column with .into()
+     let mut df = DataFrame::new(vec![users.into()])?;
+ 
+     // Write CSV (header on)
+     let mut file = File::create("users.csv")?;
+     CsvWriter::new(&mut file)
+         .include_header(true)
+         .finish(&mut df)?;
+ 
+    Ok(())
+}
+
 
 fn parse_args() -> (Duration, String) {
     let mut args = env::args().skip(1);
@@ -125,10 +146,10 @@ fn get_isn_info() -> String {
 }
 
 
-fn report_main(logger_file: &str, url: &str, public_ip: &str, isn_info: &str) {
+fn report_main(logger_file: &str, url: &str, user_name: &str, public_ip: &str, isn_info: &str) {
     let (unix, iso) = now_unix_and_rfc3339();
     let status_text = "online";
-    let line = format!("{} {} {} {} {}\n", unix, iso, public_ip, isn_info, status_text);
+    let line = format!("{} {} {} {} {} {}\n", unix, iso, user_name, public_ip, isn_info, status_text);
     
     match report_status(&line, &url) {
         Ok(_) => {
@@ -152,8 +173,40 @@ fn report_main(logger_file: &str, url: &str, public_ip: &str, isn_info: &str) {
     }
 }
 
+fn prompt_user_name() -> String {
+    println!("Enter your name: ");
+    let mut name = String::new();
+    std::io::stdin().read_line(&mut name).unwrap();
+    name.trim().to_string()
+}
+
 
 fn main() {
+    create_users_csv().unwrap();
+    let file = File::open("users.csv").expect("failed to open users.csv");
+
+    // Build CSV reader options
+    let options = CsvReadOptions::default()
+        .with_has_header(true); // specify header presence
+
+    // Read CSV into DataFrame
+    let df = CsvReader::new(file)
+        .with_options(options)
+        .finish().expect("failed to read users.csv");
+
+    println!("DataFrame:\n{df:?}");
+    let known_users = df.column("user").unwrap().clone();
+
+    let user_name = prompt_user_name();
+    match known_users.str().unwrap().equal(user_name.as_str()).any() {
+        true => {
+            println!("User: {} connected!", user_name);
+        }
+        false => {
+            panic!("User: {} is not known", user_name);
+        }
+    }
+
     let (interval, url) = parse_args();
     let isn_info = get_isn_info();
     let logger_file = "offline.log";
@@ -174,10 +227,10 @@ fn main() {
     loop {
         
         match is_internet_up(net_timeout) {
-            true => report_main(logger_file, &url, &public_ip, &isn_info),
+            true => report_main(logger_file, &url, &user_name, &public_ip, &isn_info),
             false => {
                 let (unix, iso) = now_unix_and_rfc3339();
-                let offline_line = format!("{} {} {} {} {}\n", unix, iso, public_ip, isn_info, "offline");
+                let offline_line = format!("{} {} {} {} {} {}\n", unix, iso, user_name, public_ip, isn_info, "offline");
                 eprintln!("[{}] Internet is offline (logged locally to be reported later)", now_unix());
                 log_offline(&logger_file, &offline_line).expect("failed to log offline");
             }

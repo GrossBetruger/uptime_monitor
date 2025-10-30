@@ -9,5 +9,7 @@ edition = "2024"
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 chrono = { version = "0.4", default-features = true, features = ["clock"] }
+polars = { version = "0.51", features = ["csv"] }
+
 
 
