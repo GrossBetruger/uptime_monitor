@@ -7,7 +7,7 @@ use std::io::Write;
 use polars::prelude::*;
 use polars::prelude::CsvReadOptions; 
 use std::fs::File;
-
+use std::io::Cursor;
 
 
 fn usage_and_exit() -> ! {
@@ -16,7 +16,9 @@ fn usage_and_exit() -> ! {
     exit(1);
 }
 
-fn create_users_csv() -> PolarsResult<()> {
+fn _create_users_csv() -> PolarsResult<()> {
+     // Helper method to statically create users.csv and commit it to the repository
+
      // Name must be PlSmallStr on 0.51 => "user".into()
      let users = Series::new("user".into(), &["OrenK", "DanGo", "OriA"]);
 
@@ -181,21 +183,28 @@ fn prompt_user_name() -> String {
 }
 
 
+fn users_series_from_url(url: &str) -> Result<Series, Box<dyn std::error::Error>> {
+    let bytes = reqwest::blocking::get(url)?
+        .error_for_status()?
+        .bytes()?;
+    let cursor = Cursor::new(bytes);
+
+    let df = CsvReader::new(cursor)
+        .with_options(CsvReadOptions::default().with_has_header(true))
+        .finish()?;
+
+    Ok(df.column("user")?.as_materialized_series_maintain_scalar())
+
+}
+
+
 fn main() {
-    create_users_csv().unwrap();
-    let file = File::open("users.csv").expect("failed to open users.csv");
 
-    // Build CSV reader options
-    let options = CsvReadOptions::default()
-        .with_has_header(true); // specify header presence
-
-    // Read CSV into DataFrame
-    let df = CsvReader::new(file)
-        .with_options(options)
-        .finish().expect("failed to read users.csv");
-
-    println!("DataFrame:\n{df:?}");
-    let known_users = df.column("user").unwrap().clone();
+    let known_users: Series = users_series_from_url(
+        "https://raw.githubusercontent.com/GrossBetruger/uptime_monitor/refs/heads/main/users.csv"
+    ).expect("failed to get users from url");
+    let df = DataFrame::new(vec![known_users.clone().into()]).unwrap(); // Cast to df for pretty printing
+    println!("Known users:\n{df:?}");
 
     let user_name = prompt_user_name();
     match known_users.str().unwrap().equal(user_name.as_str()).any() {
