@@ -10,6 +10,7 @@ reqwest = { version = "0.11", default-features = false, features = ["blocking", 
 serde = { version = "1", features = ["derive"] }
 chrono = { version = "0.4", default-features = true, features = ["clock"] }
 polars = { version = "0.51", features = ["csv"] }
+clap = { version = "4.5", features = ["derive"] }
 
 
 

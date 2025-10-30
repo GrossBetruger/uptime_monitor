@@ -1,18 +1,25 @@
 use polars::prelude::CsvReadOptions;
 use polars::prelude::*;
-use std::env;
+use clap::Parser;
 use std::fs::File;
 use std::io::Cursor;
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
-use std::process::exit;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-fn usage_and_exit() -> ! {
-    eprintln!("Usage: uptime_monitor <interval_seconds> <report_url>");
-    eprintln!("Example: uptime_monitor 5 https://webhook.site/your-id");
-    exit(1);
+#[derive(Parser, Debug)]
+#[command(name = "uptime_monitor")]
+#[command(about = "Monitors internet uptime and reports status to a URL")]
+#[command(version)]
+struct Args {
+    /// Interval in seconds between checks (must be at least 1)
+    #[arg(short, long, value_name = "INTERVAL_SECONDS", value_parser = clap::value_parser!(u64).range(1..))]
+    interval_seconds: u64,
+
+    /// URL to report status to
+    #[arg(short, long, value_name = "REPORT_URL")]
+    report_url: String,
 }
 
 fn _create_users_csv() -> PolarsResult<()> {
@@ -37,18 +44,8 @@ fn _create_users_csv() -> PolarsResult<()> {
 }
 
 fn parse_args() -> (Duration, String) {
-    let mut args = env::args().skip(1);
-    let secs_str = args.next().unwrap_or_else(|| usage_and_exit());
-    let url = args.next().unwrap_or_else(|| usage_and_exit());
-    let secs: u64 = secs_str.parse().unwrap_or_else(|_| {
-        eprintln!("Invalid number of seconds: {}", secs_str);
-        usage_and_exit();
-    });
-    if secs == 0 {
-        eprintln!("Interval must be at least 1 second.");
-        usage_and_exit();
-    }
-    (Duration::from_secs(secs), url)
+    let args = Args::parse();
+    (Duration::from_secs(args.interval_seconds), args.report_url)
 }
 
 fn is_internet_up(timeout: Duration) -> bool {
