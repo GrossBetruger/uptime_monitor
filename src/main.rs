@@ -195,7 +195,7 @@ fn report_main(logger_file: &str, url: &str, user_name: &str, public_ip: &str, i
     }
 }
 
-fn prompt_user_name() -> String {
+fn _prompt_user_name() -> String {
     println!("Enter your name: ");
     let mut name = String::new();
     std::io::stdin().read_line(&mut name).unwrap();
@@ -215,9 +215,11 @@ fn users_series_from_url(url: &str) -> Result<Series, Box<dyn std::error::Error>
 
 fn main() {
     _create_users_csv().unwrap();
-
     let (interval, url, user_arg) = parse_args();
-
+    if url == "test" {
+	println!("welcome {}", user_arg);
+        panic!()
+    };
     let known_users: Series = users_series_from_url(
         "https://raw.githubusercontent.com/GrossBetruger/uptime_monitor/refs/heads/main/users.csv",
     )
