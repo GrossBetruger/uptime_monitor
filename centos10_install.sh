@@ -5,5 +5,5 @@ echo 'source "$HOME/.cargo/env"' >> ~/.bashrc
 rustc --version
 cargo --version
 rustup component add rustfmt clippy rust-analyzer
-cargo new hello && cd hello
-cargo run
+sudo dnf install git
+
