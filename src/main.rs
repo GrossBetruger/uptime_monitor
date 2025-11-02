@@ -1,14 +1,13 @@
+use base64::{Engine as _, engine::general_purpose};
+use clap::Parser;
 use polars::prelude::CsvReadOptions;
 use polars::prelude::*;
-use clap::Parser;
 use std::fs::File;
 use std::io::Cursor;
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::thread::sleep;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use base64::{engine::general_purpose, Engine as _}; // brings `.decode()` into scope
-
+use std::time::{Duration, SystemTime, UNIX_EPOCH}; // brings `.decode()` into scope
 
 #[derive(Parser, Debug)]
 #[command(name = "uptime_monitor")]
@@ -20,11 +19,16 @@ struct Args {
     interval_seconds: u64,
 
     /// URL to report status to
-    #[arg(short, long, value_name = "REPORT_URL", default_value = "http://34.55.225.231:3000/ingest")]
+    #[arg(
+        short,
+        long,
+        value_name = "REPORT_URL",
+        default_value = "http://34.55.225.231:3000/ingest"
+    )]
     report_url: String,
 
     #[arg(short, long, value_name = "USER", default_value = "OrenK")]
-    user: String
+    user: String,
 }
 
 fn _create_users_csv() -> PolarsResult<()> {
@@ -33,7 +37,9 @@ fn _create_users_csv() -> PolarsResult<()> {
     // Name must be PlSmallStr on 0.51 => "user".into()
     let users = Series::new(
         "user".into(),
-        &["OrenK", "DanGo", "OriA", "Drier", "MichaelZ", "TomerB", "NisimY", "UdiK"],
+        &[
+            "OrenK", "DanGo", "OriA", "Drier", "MichaelZ", "TomerB", "NisimY", "UdiK",
+        ],
     );
 
     // DataFrame::new takes Vec<Column>, so Series -> Column with .into()
@@ -50,7 +56,11 @@ fn _create_users_csv() -> PolarsResult<()> {
 
 fn parse_args() -> (Duration, String, String) {
     let args = Args::parse();
-    (Duration::from_secs(args.interval_seconds), args.report_url, args.user)
+    (
+        Duration::from_secs(args.interval_seconds),
+        args.report_url,
+        args.user,
+    )
 }
 
 fn is_internet_up(timeout: Duration) -> bool {
@@ -216,12 +226,15 @@ fn users_series_from_url(url: &str) -> Result<Series, Box<dyn std::error::Error>
 
 fn server_str_from_url(url: &str) -> String {
     let client = reqwest::blocking::Client::new();
-    let resp = client.get(url).send().expect("[get request] failed to get server from url");
-    let server_str: String = resp.text().expect("[text response] failed to get server from url");
+    let resp = client
+        .get(url)
+        .send()
+        .expect("[get request] failed to get server from url");
+    let server_str: String = resp
+        .text()
+        .expect("[text response] failed to get server from url");
     server_str
 }
-
-
 
 fn decode_any_b64(s: &str) -> Result<Vec<u8>, base64::DecodeError> {
     general_purpose::STANDARD
@@ -230,7 +243,6 @@ fn decode_any_b64(s: &str) -> Result<Vec<u8>, base64::DecodeError> {
         .or_else(|_| general_purpose::URL_SAFE.decode(s))
         .or_else(|_| general_purpose::URL_SAFE_NO_PAD.decode(s))
 }
-
 
 pub fn deobfuscate_server_str(server_str: &str) -> Result<String, Box<dyn std::error::Error>> {
     let mut text = server_str.trim().to_owned();
@@ -244,17 +256,19 @@ pub fn deobfuscate_server_str(server_str: &str) -> Result<String, Box<dyn std::e
     Ok(text)
 }
 
-
 fn main() {
     _create_users_csv().unwrap();
     let (interval, url, user_arg) = parse_args();
     if url == "test" {
-	println!("welcome {}", user_arg);
+        println!("welcome {}", user_arg);
         panic!()
     };
 
-    let server_str = server_str_from_url("https://raw.githubusercontent.com/GrossBetruger/uptime_monitor/main/server.txt");
-    let deobfuscated_server_str = deobfuscate_server_str(&server_str.trim()).expect("failed to deobfuscate server string");
+    let server_str = server_str_from_url(
+        "https://raw.githubusercontent.com/GrossBetruger/uptime_monitor/main/server.txt",
+    );
+    let deobfuscated_server_str =
+        deobfuscate_server_str(&server_str.trim()).expect("failed to deobfuscate server string");
     println!("Server: {}", deobfuscated_server_str);
     let url = deobfuscated_server_str;
 
@@ -267,7 +281,7 @@ fn main() {
 
     // let user_name = prompt_user_name();
     let user_name = user_arg;
-    
+
     match known_users.str().unwrap().equal(user_name.as_str()).any() {
         true => {
             println!("User: {} connected!", user_name);
@@ -315,7 +329,7 @@ fn main() {
 }
 
 #[cfg(test)]
-mod tests {    
+mod tests {
     use super::*;
     use regex::Regex;
 
@@ -385,6 +399,4 @@ mod tests {
         let re = Regex::new(r"^http://\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+/\w+$").unwrap();
         assert!(re.is_match(&deobfuscated_server_str));
     }
-
-    
 }
