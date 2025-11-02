@@ -11,6 +11,8 @@ serde = { version = "1", features = ["derive"] }
 chrono = { version = "0.4", default-features = true, features = ["clock"] }
 polars = { version = "0.51", features = ["csv"] }
 clap = { version = "4.5", features = ["derive"] }
+base64 = "0.22.1"
+regex = "1.12.2"
 
 
 

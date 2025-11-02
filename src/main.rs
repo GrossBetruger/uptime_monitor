@@ -7,6 +7,7 @@ use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use base64::{engine::general_purpose, Engine as _}; // brings `.decode()` into scope
 
 
 #[derive(Parser, Debug)]
@@ -213,6 +214,37 @@ fn users_series_from_url(url: &str) -> Result<Series, Box<dyn std::error::Error>
     Ok(df.column("user")?.as_materialized_series_maintain_scalar())
 }
 
+fn server_str_from_url(url: &str) -> String {
+    let client = reqwest::blocking::Client::new();
+    let resp = client.get(url).send().expect("[get request] failed to get server from url");
+    let server_str: String = resp.text().expect("[text response] failed to get server from url");
+    server_str
+}
+
+
+
+fn decode_any_b64(s: &str) -> Result<Vec<u8>, base64::DecodeError> {
+    general_purpose::STANDARD
+        .decode(s)
+        .or_else(|_| general_purpose::STANDARD_NO_PAD.decode(s))
+        .or_else(|_| general_purpose::URL_SAFE.decode(s))
+        .or_else(|_| general_purpose::URL_SAFE_NO_PAD.decode(s))
+}
+
+
+pub fn deobfuscate_server_str(server_str: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let mut text = server_str.trim().to_owned();
+
+    for _ in 0..3 {
+        let bytes = decode_any_b64(&text)?;
+        // If the intermediate values are base64 strings, they’re ASCII -> UTF-8 is safe here.
+        text = String::from_utf8(bytes)?.trim().to_owned();
+    }
+
+    Ok(text)
+}
+
+
 fn main() {
     _create_users_csv().unwrap();
     let (interval, url, user_arg) = parse_args();
@@ -220,6 +252,12 @@ fn main() {
 	println!("welcome {}", user_arg);
         panic!()
     };
+
+    let server_str = server_str_from_url("https://raw.githubusercontent.com/GrossBetruger/uptime_monitor/main/server.txt");
+    let deobfuscated_server_str = deobfuscate_server_str(&server_str.trim()).expect("failed to deobfuscate server string");
+    println!("Server: {}", deobfuscated_server_str);
+    let url = deobfuscated_server_str;
+
     let known_users: Series = users_series_from_url(
         "https://raw.githubusercontent.com/GrossBetruger/uptime_monitor/refs/heads/main/users.csv",
     )
@@ -277,8 +315,9 @@ fn main() {
 }
 
 #[cfg(test)]
-mod tests {
+mod tests {    
     use super::*;
+    use regex::Regex;
 
     fn rfc3339_to_unix(rfc3339_str: &str) -> Result<u64, String> {
         chrono::DateTime::parse_from_rfc3339(rfc3339_str)
@@ -336,4 +375,16 @@ mod tests {
         let unix_timestamp = rfc3339_to_unix(&iso).unwrap();
         assert_eq!(unix, unix_timestamp);
     }
+
+    #[test]
+    fn test_url_fetching() {
+        let url = "https://raw.githubusercontent.com/GrossBetruger/uptime_monitor/main/server.txt";
+        let server_str = server_str_from_url(url);
+        assert!(!server_str.is_empty());
+        let deobfuscated_server_str = deobfuscate_server_str(&server_str).unwrap();
+        let re = Regex::new(r"^http://\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+/\w+$").unwrap();
+        assert!(re.is_match(&deobfuscated_server_str));
+    }
+
+    
 }

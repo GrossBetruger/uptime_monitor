@@ -3169,9 +3169,11 @@ checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
 name = "uptime_monitor"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "clap",
  "polars",
+ "regex",
  "reqwest 0.11.27",
  "serde",
 ]
