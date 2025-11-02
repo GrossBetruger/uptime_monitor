@@ -29,6 +29,10 @@ struct Args {
 
     #[arg(short, long, value_name = "USER", default_value = "OrenK")]
     user: String,
+
+    /// Add a new user to users.csv (optional user name)
+    #[arg(long = "add-user", value_name = "NEW_USER")]
+    add_user: Option<Option<String>>,
 }
 
 fn _create_users_csv() -> PolarsResult<()> {
@@ -54,12 +58,13 @@ fn _create_users_csv() -> PolarsResult<()> {
     Ok(())
 }
 
-fn parse_args() -> (Duration, String, String) {
+fn parse_args() -> (Duration, String, String, Option<Option<String>>) {
     let args = Args::parse();
     (
         Duration::from_secs(args.interval_seconds),
         args.report_url,
         args.user,
+        args.add_user,
     )
 }
 
@@ -249,16 +254,70 @@ pub fn deobfuscate_server_str(server_str: &str) -> Result<String, Box<dyn std::e
 
     for _ in 0..3 {
         let bytes = decode_any_b64(&text)?;
-        // If the intermediate values are base64 strings, they’re ASCII -> UTF-8 is safe here.
+        // If the intermediate values are base64 strings, they're ASCII -> UTF-8 is safe here.
         text = String::from_utf8(bytes)?.trim().to_owned();
     }
 
     Ok(text)
 }
 
+fn add_user(new_user: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
+    // Fetch all known users from GitHub
+    let github_url = "https://raw.githubusercontent.com/GrossBetruger/uptime_monitor/refs/heads/main/users.csv";
+    let mut known_users: Series = users_series_from_url(github_url)?;
+    
+    // If a new user is provided, append it
+    if let Some(user) = new_user {
+        // Check if user already exists
+        let user_exists = known_users.str()?.equal(user.as_str()).any();
+        if user_exists {
+            println!("User '{}' already exists in users.csv", user);
+            return Ok(());
+        }
+        
+        // Append the new user
+        // Convert Series to Vec<String>, append new user, then create new Series
+        let mut users_vec: Vec<String> = known_users
+            .str()?
+            .into_iter()
+            .map(|opt| opt.unwrap_or_default().to_string())
+            .collect();
+        users_vec.push(user.clone());
+        known_users = Series::new("user".into(), users_vec);
+        println!("Adding user '{}' to users.csv", user);
+    } else {
+        println!("No user name provided. Use --add-user <USER_NAME> to add a user.");
+        return Ok(());
+    }
+    
+    // Create DataFrame and write to local users.csv file
+    let mut df = DataFrame::new(vec![known_users.into()])?;
+    let mut file = File::create("users.csv")?;
+    CsvWriter::new(&mut file)
+        .include_header(true)
+        .finish(&mut df)?;
+    
+    println!("Successfully updated users.csv");
+    Ok(())
+}
+
 fn main() {
     _create_users_csv().unwrap();
-    let (interval, url, user_arg) = parse_args();
+    let (interval, url, user_arg, add_user_arg) = parse_args();
+    
+    // If add-user argument is present, run add_user and exit
+    if let Some(new_user) = add_user_arg {
+        match add_user(new_user) {
+            Ok(_) => {
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("Error adding user: {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+    
     if url == "test" {
         println!("welcome {}", user_arg);
         panic!()
