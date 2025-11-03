@@ -33,6 +33,9 @@ struct Args {
     /// Add a new user to users.csv (optional user name)
     #[arg(long = "add-user", value_name = "NEW_USER")]
     add_user: Option<Option<String>>,
+
+    #[arg(short, long, value_name = "TEST", action = clap::ArgAction::SetTrue)]
+    test: bool,
 }
 
 fn _create_users_csv() -> PolarsResult<()> {
@@ -58,13 +61,14 @@ fn _create_users_csv() -> PolarsResult<()> {
     Ok(())
 }
 
-fn parse_args() -> (Duration, String, String, Option<Option<String>>) {
+fn parse_args() -> (Duration, String, String, Option<Option<String>>, bool) {
     let args = Args::parse();
     (
         Duration::from_secs(args.interval_seconds),
         args.report_url,
         args.user,
         args.add_user,
+        args.test,
     )
 }
 
@@ -303,7 +307,7 @@ fn add_user(new_user: Option<String>) -> Result<(), Box<dyn std::error::Error>> 
 
 fn main() {
     _create_users_csv().unwrap();
-    let (interval, url, user_arg, add_user_arg) = parse_args();
+    let (interval, url, user_arg, add_user_arg, test) = parse_args();
     
     // If add-user argument is present, run add_user and exit
     if let Some(new_user) = add_user_arg {
@@ -318,9 +322,9 @@ fn main() {
         }
     }
     
-    if url == "test" {
+    if test {
         println!("welcome {}", user_arg);
-        panic!()
+        std::process::exit(0);
     };
 
     let server_str = server_str_from_url(
