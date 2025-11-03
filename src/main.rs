@@ -65,9 +65,9 @@ fn parse_args() -> (Duration, String, Option<Option<String>>, bool) {
 fn is_internet_up(timeout: Duration) -> bool {
     // Well-known public DNS servers (using IPs avoids relying on DNS)
     let targets: [SocketAddr; 3] = [
-        "1.1.1.1:53".parse().unwrap(),
-        "8.8.8.8:53".parse().unwrap(),
-        "1.0.0.1:53".parse().unwrap(),
+        "1.1.1.1:53".parse().unwrap(), // Cloudflare DNS
+        "8.8.8.8:53".parse().unwrap(), // Google DNS
+        "1.0.0.1:53".parse().unwrap(), // Cloudflare DNS
     ];
 
     for addr in targets {
@@ -257,9 +257,10 @@ pub fn deobfuscate_server_str(server_str: &str) -> Result<String, Box<dyn std::e
 
 fn add_user(new_user: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
     // Fetch all known users from GitHub
-    let github_url = "https://raw.githubusercontent.com/GrossBetruger/uptime_monitor/refs/heads/main/users.csv";
+    let github_url =
+        "https://raw.githubusercontent.com/GrossBetruger/uptime_monitor/refs/heads/main/users.csv";
     let mut known_users: Series = users_series_from_url(github_url)?;
-    
+
     // If a new user is provided, append it
     if let Some(user) = new_user {
         // Check if user already exists
@@ -268,7 +269,7 @@ fn add_user(new_user: Option<String>) -> Result<(), Box<dyn std::error::Error>> 
             println!("User '{}' already exists in users.csv", user);
             return Ok(());
         }
-        
+
         // Append the new user
         // Convert Series to Vec<String>, append new user, then create new Series
         let mut users_vec: Vec<String> = known_users
@@ -283,14 +284,14 @@ fn add_user(new_user: Option<String>) -> Result<(), Box<dyn std::error::Error>> 
         println!("No user name provided. Use --add-user <USER_NAME> to add a user.");
         return Ok(());
     }
-    
+
     // Create DataFrame and write to local users.csv file
     let mut df = DataFrame::new(vec![known_users.into()])?;
     let mut file = File::create("users.csv")?;
     CsvWriter::new(&mut file)
         .include_header(true)
         .finish(&mut df)?;
-    
+
     println!("Successfully updated users.csv");
     Ok(())
 }
@@ -298,7 +299,7 @@ fn add_user(new_user: Option<String>) -> Result<(), Box<dyn std::error::Error>> 
 fn main() {
     _create_users_csv().unwrap();
     let (interval, user_arg, add_user_arg, test) = parse_args();
-    
+
     // If add-user argument is present, run add_user and exit
     if let Some(new_user) = add_user_arg {
         match add_user(new_user) {
@@ -311,7 +312,7 @@ fn main() {
             }
         }
     }
-    
+
     if test {
         println!("welcome {}", user_arg);
         std::process::exit(0);
