@@ -18,15 +18,6 @@ struct Args {
     #[arg(short, long, value_name = "INTERVAL_SECONDS", value_parser = clap::value_parser!(u64).range(1..), default_value = "1")]
     interval_seconds: u64,
 
-    /// URL to report status to
-    #[arg(
-        short,
-        long,
-        value_name = "REPORT_URL",
-        default_value = "http://34.55.225.231:3000/ingest"
-    )]
-    report_url: String,
-
     #[arg(short, long, value_name = "USER", default_value = "OrenK")]
     user: String,
 
@@ -61,11 +52,10 @@ fn _create_users_csv() -> PolarsResult<()> {
     Ok(())
 }
 
-fn parse_args() -> (Duration, String, String, Option<Option<String>>, bool) {
+fn parse_args() -> (Duration, String, Option<Option<String>>, bool) {
     let args = Args::parse();
     (
         Duration::from_secs(args.interval_seconds),
-        args.report_url,
         args.user,
         args.add_user,
         args.test,
@@ -307,7 +297,7 @@ fn add_user(new_user: Option<String>) -> Result<(), Box<dyn std::error::Error>> 
 
 fn main() {
     _create_users_csv().unwrap();
-    let (interval, url, user_arg, add_user_arg, test) = parse_args();
+    let (interval, user_arg, add_user_arg, test) = parse_args();
     
     // If add-user argument is present, run add_user and exit
     if let Some(new_user) = add_user_arg {
