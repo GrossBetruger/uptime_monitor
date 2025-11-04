@@ -40,7 +40,7 @@ fn _create_users_csv() -> PolarsResult<()> {
     let users = Series::new(
         "user".into(),
         &[
-            "OrenK", "DanGo", "OriA", "Drier", "MichaelZ", "TomerB", "NisimY", "UdiK",
+            "OrenK", "DanGo", "OriA", "Drier", "MichaelZ", "TomerB", "NisimY", "UdiK", "Lioz",
         ],
     );
 
