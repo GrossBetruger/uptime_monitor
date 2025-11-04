@@ -27,6 +27,10 @@ struct Args {
 
     #[arg(short, long, value_name = "TEST", action = clap::ArgAction::SetTrue)]
     test: bool,
+
+    /// Optional URL to override the URL from deobfuscation
+    #[arg(long, value_name = "URL")]
+    url: Option<String>,
 }
 
 fn _create_users_csv() -> PolarsResult<()> {
@@ -52,13 +56,14 @@ fn _create_users_csv() -> PolarsResult<()> {
     Ok(())
 }
 
-fn parse_args() -> (Duration, String, Option<Option<String>>, bool) {
+fn parse_args() -> (Duration, String, Option<Option<String>>, bool, Option<String>) {
     let args = Args::parse();
     (
         Duration::from_secs(args.interval_seconds),
         args.user,
         args.add_user,
         args.test,
+        args.url,
     )
 }
 
@@ -298,7 +303,7 @@ fn add_user(new_user: Option<String>) -> Result<(), Box<dyn std::error::Error>> 
 
 fn main() {
     _create_users_csv().unwrap();
-    let (interval, user_arg, add_user_arg, test) = parse_args();
+    let (interval, user_arg, add_user_arg, test, url_override) = parse_args();
 
     // If add-user argument is present, run add_user and exit
     if let Some(new_user) = add_user_arg {
@@ -318,13 +323,18 @@ fn main() {
         std::process::exit(0);
     };
 
-    let server_str = server_str_from_url(
-        "https://raw.githubusercontent.com/GrossBetruger/uptime_monitor/main/server.txt",
-    );
-    let deobfuscated_server_str =
-        deobfuscate_server_str(&server_str.trim()).expect("failed to deobfuscate server string");
-    println!("Server: {}", deobfuscated_server_str);
-    let url = deobfuscated_server_str;
+    let url = if let Some(override_url) = url_override {
+        println!("Using provided URL: {}", override_url);
+        override_url
+    } else {
+        let server_str = server_str_from_url(
+            "https://raw.githubusercontent.com/GrossBetruger/uptime_monitor/main/server.txt",
+        );
+        let deobfuscated_server_str =
+            deobfuscate_server_str(&server_str.trim()).expect("failed to deobfuscate server string");
+        println!("Server: {}", deobfuscated_server_str);
+        deobfuscated_server_str
+    };
 
     let known_users: Series = users_series_from_url(
         "https://raw.githubusercontent.com/GrossBetruger/uptime_monitor/refs/heads/main/users.csv",
