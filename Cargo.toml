@@ -6,7 +6,7 @@ edition = "2024"
 
 [dependencies]
 # HTTPS-capable, simple blocking client with JSON
-reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls", "rustls-tls-native-roots"] }
 serde = { version = "1", features = ["derive"] }
 chrono = { version = "0.4", default-features = true, features = ["clock"] }
 polars = { version = "0.51", features = ["csv"] }
