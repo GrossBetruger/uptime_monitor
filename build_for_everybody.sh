@@ -1,0 +1,1 @@
+for user in $(cat users.csv); do export USER_NAME=$user; echo "Building for: $user" && ./build_for_windows.sh && mv target/x86_64-pc-windows-gnu/release/uptime_monitor.exe "uptime_monitor_$user.exe" && cargo build && target/debug/uptime_monitor -t ; done
