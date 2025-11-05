@@ -9,6 +9,11 @@ use std::net::{SocketAddr, TcpStream};
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH}; // brings `.decode()` into scope
 
+const COMPILED_USER_ID: &str = match option_env!("USER_NAME") {
+    Some(v) => v,
+    None => "OrenK",
+};
+
 #[derive(Parser, Debug)]
 #[command(name = "uptime_monitor")]
 #[command(about = "Monitors internet uptime and reports status to a URL")]
@@ -18,7 +23,7 @@ struct Args {
     #[arg(short, long, value_name = "INTERVAL_SECONDS", value_parser = clap::value_parser!(u64).range(1..), default_value = "1")]
     interval_seconds: u64,
 
-    #[arg(short, long, value_name = "USER", default_value = "OrenK")]
+    #[arg(short, long, value_name = "USER", default_value = COMPILED_USER_ID)]
     user: String,
 
     /// Add a new user to users.csv (optional user name)
