@@ -190,16 +190,28 @@ fn report_main(logger_file: &str, url: &str, user_name: &str, public_ip: &str, i
                 status_text,
                 public_ip
             );
+            let mut unreported_offline: Vec<String> = Vec::new();
             if std::path::Path::new(logger_file).exists() {
                 for line in std::fs::read_to_string(logger_file).unwrap().lines() {
-                    report_status(&line, &url).unwrap();
-                    println!("{}", line);
+                    match report_status(&line, &url) {
+                        Ok(_) => {
+                            println!("{}", line);
+                        }
+                        Err(e) => {
+                            eprintln!("failed to report status: {}", e);
+                            unreported_offline.push(line.to_string());
+                        }
+                    }
                     // sleep(Duration::from_secs(1));
                 }
             }
             // remove offline.log
             if std::path::Path::new(logger_file).exists() {
-                std::fs::remove_file(logger_file).unwrap();
+                std::fs::remove_file(logger_file).expect("failed to remove offline.log");
+            }
+
+            if !unreported_offline.is_empty() {
+                std::fs::write(logger_file, unreported_offline.join("\n")).expect("failed to write unreported offline");
             }
         }
         Err(e) => {
