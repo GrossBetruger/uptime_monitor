@@ -36,10 +36,14 @@ COPY Cargo.toml Cargo.lock ./
 # Copy source code
 COPY src ./src
 
+ARG USER_NAME=UdiK
+
 # Build the release binary
 # Since we're building on CentOS 7.8.2003, the default target is x86_64-unknown-linux-gnu
 # The binary will be compatible with CentOS 7.8.2003's glibc 2.17
-RUN cargo build --release
+# USER_NAME is used at compile time via option_env!() macro
+RUN export USER_NAME=${USER_NAME}; cargo build --release
+RUN target/release/uptime_monitor -t
 
 # Runtime stage - minimal CentOS 7.8.2003 image
 FROM centos:7.8.2003
