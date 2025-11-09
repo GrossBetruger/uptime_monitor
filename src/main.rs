@@ -324,6 +324,26 @@ fn add_user(new_user: Option<String>) -> Result<(), Box<dyn std::error::Error>> 
     Ok(())
 }
 
+
+fn busy_loop_iteration(net_timeout: Duration, logger_file: &str, url: &str, user_name: &str, public_ip: &str, isn_info: &str) {
+    match is_internet_up(net_timeout) {
+        true => report_main(logger_file, &url, &user_name, &public_ip, &isn_info),
+        false => {
+            let (unix, iso) = now_unix_and_rfc3339();
+            let offline_line = format!(
+                "{} {} {} {} {} {}\n",
+                unix, iso, user_name, public_ip, isn_info, "offline"
+            );
+            eprintln!(
+                "[{}] Internet is offline (logged locally to be reported later)",
+                now_unix()
+            );
+            log_offline(&logger_file, &offline_line).expect("failed to log offline");
+        }
+    }
+}
+
+
 fn main() {
     _create_users_csv().unwrap();
     let (interval, user_arg, add_user_arg, test, url_override) = parse_args();
@@ -395,22 +415,7 @@ fn main() {
     let net_timeout = Duration::from_secs(2);
 
     loop {
-        match is_internet_up(net_timeout) {
-            true => report_main(logger_file, &url, &user_name, &public_ip, &isn_info),
-            false => {
-                let (unix, iso) = now_unix_and_rfc3339();
-                let offline_line = format!(
-                    "{} {} {} {} {} {}\n",
-                    unix, iso, user_name, public_ip, isn_info, "offline"
-                );
-                eprintln!(
-                    "[{}] Internet is offline (logged locally to be reported later)",
-                    now_unix()
-                );
-                log_offline(&logger_file, &offline_line).expect("failed to log offline");
-            }
-        }
-
+        busy_loop_iteration(net_timeout, &logger_file, &url, &user_name, &public_ip, &isn_info);
         sleep(interval);
     }
 }
