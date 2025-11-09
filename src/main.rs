@@ -193,9 +193,15 @@ fn report_main(logger_file: &str, url: &str, user_name: &str, public_ip: &str, i
             let mut unreported_offline: Vec<String> = Vec::new();
             if std::path::Path::new(logger_file).exists() {
                 for line in std::fs::read_to_string(logger_file).unwrap().lines() {
+                    // add newline if not present
+                    let mut line = line.to_string();
+                    if !line.ends_with("\n") {
+                        line.push('\n');
+                    }
+                    assert!(line.ends_with("\n"), "last char: {}", &line.chars().last().unwrap().to_string());
                     match report_status(&line, &url) {
                         Ok(_) => {
-                            println!("{}", line);
+                            print!("{}", line);
                         }
                         Err(e) => {
                             eprintln!("failed to report status: {}", e);
