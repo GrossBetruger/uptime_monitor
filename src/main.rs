@@ -9,10 +9,41 @@ use std::net::{SocketAddr, TcpStream};
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH}; // brings `.decode()` into scope
 
+#[cfg(test)]
+use mockall::predicate::*;
+#[cfg(test)]
+use mockall::*;
+
 const COMPILED_USER_ID: &str = match option_env!("USER_NAME") {
     Some(v) => v,
     None => "OrenK",
 };
+
+// Traits for dependency injection (used for testing)
+#[cfg_attr(test, automock)]
+trait InternetChecker {
+    fn is_internet_up(&self, timeout: Duration) -> bool;
+}
+
+#[cfg_attr(test, automock)]
+trait StatusReporter {
+    fn report_status(&self, line: &str, url: &str) -> Result<(), String>;
+}
+
+// Default implementations using the original functions
+struct DefaultInternetChecker;
+impl InternetChecker for DefaultInternetChecker {
+    fn is_internet_up(&self, timeout: Duration) -> bool {
+        is_internet_up(timeout)
+    }
+}
+
+struct DefaultStatusReporter;
+impl StatusReporter for DefaultStatusReporter {
+    fn report_status(&self, line: &str, url: &str) -> Result<(), String> {
+        report_status(line, url)
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(name = "uptime_monitor")]
@@ -174,7 +205,7 @@ fn get_isn_info() -> String {
     isn_response.data.connection.org
 }
 
-fn report_main(logger_file: &str, url: &str, user_name: &str, public_ip: &str, isn_info: &str) {
+fn report_main(logger_file: &str, url: &str, user_name: &str, public_ip: &str, isn_info: &str, status_reporter: &dyn StatusReporter) {
     let (unix, iso) = now_unix_and_rfc3339();
     let status_text = "online";
     let line = format!(
@@ -182,7 +213,7 @@ fn report_main(logger_file: &str, url: &str, user_name: &str, public_ip: &str, i
         unix, iso, user_name, public_ip, isn_info, status_text
     );
 
-    match report_status(&line, &url) {
+    match status_reporter.report_status(&line, &url) {
         Ok(_) => {
             println!(
                 "[{}] Internet is {} (reported), public IP: {}",
@@ -199,7 +230,7 @@ fn report_main(logger_file: &str, url: &str, user_name: &str, public_ip: &str, i
                         line.push('\n');
                     }
                     assert!(line.ends_with("\n"), "last char: {}", &line.chars().last().unwrap().to_string());
-                    match report_status(&line, &url) {
+                    match status_reporter.report_status(&line, &url) {
                         Ok(_) => {
                             print!("{}", line);
                         }
@@ -325,9 +356,18 @@ fn add_user(new_user: Option<String>) -> Result<(), Box<dyn std::error::Error>> 
 }
 
 
-fn busy_loop_iteration(net_timeout: Duration, logger_file: &str, url: &str, user_name: &str, public_ip: &str, isn_info: &str) {
-    match is_internet_up(net_timeout) {
-        true => report_main(logger_file, &url, &user_name, &public_ip, &isn_info),
+fn busy_loop_iteration(
+    net_timeout: Duration,
+    logger_file: &str,
+    url: &str,
+    user_name: &str,
+    public_ip: &str,
+    isn_info: &str,
+    internet_checker: &dyn InternetChecker,
+    status_reporter: &dyn StatusReporter,
+) {
+    match internet_checker.is_internet_up(net_timeout) {
+        true => report_main(logger_file, &url, &user_name, &public_ip, &isn_info, status_reporter),
         false => {
             let (unix, iso) = now_unix_and_rfc3339();
             let offline_line = format!(
@@ -414,8 +454,20 @@ fn main() {
     println!("Press Ctrl+C to stop.");
     let net_timeout = Duration::from_secs(2);
 
+    let internet_checker = DefaultInternetChecker;
+    let status_reporter = DefaultStatusReporter;
+
     loop {
-        busy_loop_iteration(net_timeout, &logger_file, &url, &user_name, &public_ip, &isn_info);
+        busy_loop_iteration(
+            net_timeout,
+            &logger_file,
+            &url,
+            &user_name,
+            &public_ip,
+            &isn_info,
+            &internet_checker,
+            &status_reporter,
+        );
         sleep(interval);
     }
 }
@@ -450,7 +502,8 @@ mod tests {
         let user_name = "OrenK";
         let public_ip = "127.0.0.1";
         let isn_info = "Israel";
-        report_main(logger_file, &url, &user_name, &public_ip, &isn_info);
+        let status_reporter = DefaultStatusReporter;
+        report_main(logger_file, &url, &user_name, &public_ip, &isn_info, &status_reporter);
     }
 
     #[test]
@@ -490,5 +543,291 @@ mod tests {
         let deobfuscated_server_str = deobfuscate_server_str(&server_str).unwrap();
         let re = Regex::new(r"^http://\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+/\w+$").unwrap();
         assert!(re.is_match(&deobfuscated_server_str));
+    }
+
+    #[test]
+    fn test_busy_loop_iteration_with_mocked_sequence() {
+        // Test sequence: [true, true, false, false, false]
+        let mut mock_internet_checker = MockInternetChecker::new();
+        let mut mock_status_reporter = MockStatusReporter::new();
+
+        // Setup expectations for the sequence using a RefCell counter
+        let call_count = std::cell::RefCell::new(0);
+        mock_internet_checker
+            .expect_is_internet_up()
+            .times(5)
+            .returning(move |_| {
+                *call_count.borrow_mut() += 1;
+                match *call_count.borrow() {
+                    1 | 2 => true,  // First two calls return true
+                    _ => false,    // Remaining calls return false
+                }
+            });
+
+        // When internet is up (first 2 calls), report_status should be called
+        mock_status_reporter
+            .expect_report_status()
+            .times(2)
+            .withf(|line: &str, url: &str| {
+                line.contains("online") && !url.is_empty()
+            })
+            .returning(|_, _| Ok(()));
+
+        let net_timeout = Duration::from_secs(2);
+        let logger_file = "test_busy_loop.log";
+        let url = "http://test.example.com/status";
+        let user_name = "TestUser";
+        let public_ip = "192.168.1.1";
+        let isn_info = "TestISP";
+
+        // Clean up any existing test log file
+        if std::path::Path::new(logger_file).exists() {
+            std::fs::remove_file(logger_file).unwrap();
+        }
+
+        // Simulate the sequence: [true, true, false, false, false]
+        for _ in 0..5 {
+            busy_loop_iteration(
+                net_timeout,
+                logger_file,
+                url,
+                user_name,
+                public_ip,
+                isn_info,
+                &mock_internet_checker,
+                &mock_status_reporter,
+            );
+        }
+
+        // Verify that offline log file was created and contains offline entries
+        assert!(std::path::Path::new(logger_file).exists());
+        let log_contents = std::fs::read_to_string(logger_file).unwrap();
+        let offline_lines: Vec<&str> = log_contents
+            .lines()
+            .filter(|line| line.contains("offline"))
+            .collect();
+        assert_eq!(offline_lines.len(), 3, "Should have 3 offline entries");
+
+        // Clean up
+        std::fs::remove_file(logger_file).unwrap();
+    }
+
+    #[test]
+    fn test_busy_loop_iteration_all_online() {
+        let mut mock_internet_checker = MockInternetChecker::new();
+        let mut mock_status_reporter = MockStatusReporter::new();
+
+        // All calls return true (online)
+        mock_internet_checker
+            .expect_is_internet_up()
+            .times(3)
+            .returning(|_| true);
+
+        // report_status should be called for each online status
+        mock_status_reporter
+            .expect_report_status()
+            .times(3)
+            .withf(|line: &str, url: &str| {
+                line.contains("online") && !url.is_empty()
+            })
+            .returning(|_, _| Ok(()));
+
+        let net_timeout = Duration::from_secs(2);
+        let logger_file = "test_busy_loop_all_online.log";
+        let url = "http://test.example.com/status";
+        let user_name = "TestUser";
+        let public_ip = "192.168.1.1";
+        let isn_info = "TestISP";
+
+        // Clean up any existing test log file
+        if std::path::Path::new(logger_file).exists() {
+            std::fs::remove_file(logger_file).unwrap();
+        }
+
+        // Simulate 3 iterations, all online
+        for _ in 0..3 {
+            busy_loop_iteration(
+                net_timeout,
+                logger_file,
+                url,
+                user_name,
+                public_ip,
+                isn_info,
+                &mock_internet_checker,
+                &mock_status_reporter,
+            );
+        }
+
+        // No offline log file should exist when all are online
+        assert!(!std::path::Path::new(logger_file).exists());
+    }
+
+    #[test]
+    fn test_busy_loop_iteration_all_offline() {
+        let mut mock_internet_checker = MockInternetChecker::new();
+        let mut mock_status_reporter = MockStatusReporter::new();
+
+        // All calls return false (offline)
+        mock_internet_checker
+            .expect_is_internet_up()
+            .times(3)
+            .returning(|_| false);
+
+        // report_status should never be called when offline
+        mock_status_reporter
+            .expect_report_status()
+            .times(0);
+
+        let net_timeout = Duration::from_secs(2);
+        let logger_file = "test_busy_loop_all_offline.log";
+        let url = "http://test.example.com/status";
+        let user_name = "TestUser";
+        let public_ip = "192.168.1.1";
+        let isn_info = "TestISP";
+
+        // Clean up any existing test log file
+        if std::path::Path::new(logger_file).exists() {
+            std::fs::remove_file(logger_file).unwrap();
+        }
+
+        // Simulate 3 iterations, all offline
+        for _ in 0..3 {
+            busy_loop_iteration(
+                net_timeout,
+                logger_file,
+                url,
+                user_name,
+                public_ip,
+                isn_info,
+                &mock_internet_checker,
+                &mock_status_reporter,
+            );
+        }
+
+        // Verify offline log file was created
+        assert!(std::path::Path::new(logger_file).exists());
+        let log_contents = std::fs::read_to_string(logger_file).unwrap();
+        let offline_lines: Vec<&str> = log_contents
+            .lines()
+            .filter(|line| line.contains("offline"))
+            .collect();
+        assert_eq!(offline_lines.len(), 3, "Should have 3 offline entries");
+        // Clean up
+        std::fs::remove_file(logger_file).unwrap();
+
+    }
+
+    #[test]
+    fn test_busy_loop_iteration_alternating() {
+        // Test alternating pattern: [true, false, true, false]
+        let mut mock_internet_checker = MockInternetChecker::new();
+        let mut mock_status_reporter = MockStatusReporter::new();
+
+        let call_count = std::cell::RefCell::new(0);
+        mock_internet_checker
+            .expect_is_internet_up()
+            .times(4)
+            .returning(move |_| {
+                *call_count.borrow_mut() += 1;
+                *call_count.borrow() % 2 == 1 // Odd calls return true, even calls return false
+            });
+
+        // report_status should be called for online statuses and offline entries
+        // Call 1 (true): reports online (1 call)
+        // Call 3 (true): reports online (1 call) + reports offline entry from call 2 (1 call)
+        // Total: 3 calls
+        mock_status_reporter
+            .expect_report_status()
+            .times(3)
+            .withf(|line: &str, url: &str| {
+                (!url.is_empty()) && (line.contains("online") || line.contains("offline"))
+            })
+            .returning(|_, _| Ok(()));
+
+        let net_timeout = Duration::from_secs(2);
+        let logger_file = "test_busy_loop_alternating.log";
+        let url = "http://test.example.com/status";
+        let user_name = "TestUser";
+        let public_ip = "192.168.1.1";
+        let isn_info = "TestISP";
+
+        // Clean up any existing test log file
+        if std::path::Path::new(logger_file).exists() {
+            std::fs::remove_file(logger_file).unwrap();
+        }
+
+        // Simulate alternating pattern
+        for _ in 0..4 {
+            busy_loop_iteration(
+                net_timeout,
+                logger_file,
+                url,
+                user_name,
+                public_ip,
+                isn_info,
+                &mock_internet_checker,
+                &mock_status_reporter,
+            );
+        }
+        
+
+        // Verify offline log file contains 1 offline entry
+        // (Call 2 logged offline, Call 3 reported it and deleted the file, Call 4 logged offline again)
+        assert!(std::path::Path::new(logger_file).exists());
+        let log_contents = std::fs::read_to_string(logger_file).unwrap();
+        let offline_lines: Vec<&str> = log_contents
+            .lines()
+            .filter(|line| line.contains("offline"))
+            .collect();
+        assert_eq!(offline_lines.len(), 1, "Should have 1 offline entry (previous one was reported and deleted)");
+
+        // Clean up
+        std::fs::remove_file(logger_file).unwrap();
+    }
+
+    #[test]
+    fn test_busy_loop_iteration_report_status_failure() {
+        // Test when report_status fails
+        let mut mock_internet_checker = MockInternetChecker::new();
+        let mut mock_status_reporter = MockStatusReporter::new();
+
+        mock_internet_checker
+            .expect_is_internet_up()
+            .times(1)
+            .returning(|_| true);
+
+        // report_status fails
+        mock_status_reporter
+            .expect_report_status()
+            .times(1)
+            .returning(|_, _| Err("Network error".to_string()));
+
+        let net_timeout = Duration::from_secs(2);
+        let logger_file = "test_busy_loop_report_failure.log";
+        let url = "http://test.example.com/status";
+        let user_name = "TestUser";
+        let public_ip = "192.168.1.1";
+        let isn_info = "TestISP";
+
+        // Clean up any existing test log file
+        if std::path::Path::new(logger_file).exists() {
+            std::fs::remove_file(logger_file).unwrap();
+        }
+
+        // Run one iteration
+        busy_loop_iteration(
+            net_timeout,
+            logger_file,
+            url,
+            user_name,
+            public_ip,
+            isn_info,
+            &mock_internet_checker,
+            &mock_status_reporter,
+        );
+
+        // When report_status fails, the offline log should not be created
+        // (based on the current implementation, report_main handles the error internally)
+        // The test verifies that the function completes without panicking
     }
 }

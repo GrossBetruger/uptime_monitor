@@ -14,5 +14,8 @@ clap = { version = "4.5", features = ["derive"] }
 base64 = "0.22.1"
 regex = "1.12.2"
 
+[dev-dependencies]
+mockall = "0.13"
+
 
 
