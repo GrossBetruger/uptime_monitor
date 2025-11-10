@@ -920,7 +920,7 @@ mod tests {
 
         let net_timeout = Duration::from_secs(2);
         let logger_file = "test_server_integration.log";
-        let url = "http://127.0.0.1:3000/status";
+        let url = "http://127.0.0.1:3000/ingest";
         let user_name = "TestUser";
         let public_ip = "192.168.1.100";
         let isn_info = "TestISP";
@@ -980,7 +980,7 @@ mod tests {
 
         let net_timeout = Duration::from_secs(2);
         let logger_file = "test_server_integration_offline.log";
-        let url = "http://127.0.0.1:3000/status";
+        let url = "http://127.0.0.1:3000/ingest";
         let user_name = "TestUser";
         let public_ip = "192.168.1.100";
         let isn_info = "TestISP";
