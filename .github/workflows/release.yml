@@ -1,6 +1,6 @@
 on:
   push:
-    tags: ['v*']
+    tags: ['*']
 jobs:
   upload-assets:
     runs-on: ubuntu-latest
