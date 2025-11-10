@@ -1,12 +1,25 @@
+name: Release
 on:
   push:
-    tags: ['*']
+    tags: ["*"]  
+permissions:
+  contents: write
+
 jobs:
   upload-assets:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: gh release upload "$GITHUB_REF_NAME" "release_binaries/uptime_monitor_udik" --clobber -R GrossBetruger/uptime_monitor
-        env:
-          GH_TOKEN: ${{ github.token }}
 
+      - name: Show what we’re uploading
+        run: ls -al release_binaries
+
+      - name: Create the release if missing
+        env: { GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+          gh release create "$GITHUB_REF_NAME" --generate-notes
+
+      - name: Upload binaries
+        env: { GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
+        run: gh release upload "$GITHUB_REF_NAME" release_binaries/* --clobber
