@@ -6,7 +6,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: gh release upload "$GITHUB_REF_NAME" "release_binaries/*" --clobber -R GrossBetruger/uptime_monitor
+      - run: gh release upload "$GITHUB_REF_NAME" "release_binaries/uptime_monitor_udik" --clobber -R GrossBetruger/uptime_monitor
         env:
           GH_TOKEN: ${{ github.token }}
 
