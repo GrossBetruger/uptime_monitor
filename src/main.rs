@@ -651,6 +651,7 @@ mod tests {
                     _ => false,    // Remaining calls return false
                 }
             });
+                
 
         // When internet is up (first 2 calls), report_status should be called
         mock_status_reporter
@@ -1078,5 +1079,86 @@ mod tests {
         drop(lock);
     }
 
+    #[test]
+    fn test_send_messages_to_test_server_with_mocked_internet_flactuating() {
+        let lock = SERVER_USER_MUTEX.get_or_init(|| Mutex::new(())).lock().unwrap();
+
+       // Clean up server log file
+       if std::path::Path::new("logs/payload.log").exists() {
+        std::fs::remove_file("logs/payload.log").expect("Failed to remove server log file");
+        }
+
+        // Ensure test_server is running (will reuse if already running)
+        // The guard will ensure cleanup when this test finishes
+        let _server_guard = ensure_test_server_running();
+
+        // Setup mocks
+        let mut mock_internet_checker = MockInternetChecker::new();
+        let status_reporter = DefaultStatusReporter;
+
+        // Mock internet sequence: online, offline, online, offline, online
+        let call_count = std::cell::RefCell::new(0);
+        mock_internet_checker
+            .expect_is_internet_up()
+            .times(20)
+            .returning(move |_| {
+                *call_count.borrow_mut() += 1;
+                *call_count.borrow() % 2 == 0 // Even calls return true, odd calls return false (online must be first)
+            });
+
+       
+        let net_timeout = Duration::from_secs(2);
+        let logger_file = "test_server_integration_flactuating.log";
+        let url = "http://127.0.0.1:3000/ingest";
+        let user_name = "TestUser";
+        let public_ip = "192.168.1.100";
+        let isn_info = "TestISP";
+        
+        // Clean up any existing test log file
+        if std::path::Path::new(logger_file).exists() {
+            std::fs::remove_file(logger_file).unwrap();
+        }
+
+        for _ in 0..20 {
+            busy_loop_iteration(
+                net_timeout,
+                logger_file,
+                url,
+                user_name,
+                public_ip,
+                isn_info,
+                &mock_internet_checker,
+                &status_reporter,
+            );
+        }
+
+        // Give server time to process
+        std::thread::sleep(Duration::from_millis(5));
+
+        let server_log_file = "logs/payload.log";
+        assert!(std::path::Path::new(server_log_file).exists(), "server log file should exist");
+        let server_log_contents = std::fs::read_to_string(server_log_file).unwrap();
+        let server_log_lines: Vec<&str> = server_log_contents.lines().map(|line| line.trim()).collect();
+        assert_eq!(server_log_lines.len(), 20, "server log file should have 20 lines");
+        
+        for i in 0..20 {
+            println!("server_log_lines[{}]: {}", &i, &server_log_lines[i]);
+            if i % 2 == 1 {
+                // assert!(server_log_lines[i].contains("online"));
+            } else {
+                // assert!(server_log_lines[i].contains("offline"));
+            }
+        }
+
+        // Clean up any existing test log file
+        if std::path::Path::new(logger_file).exists() {
+            std::fs::remove_file(logger_file).unwrap();
+        }
+
+        if std::path::Path::new(server_log_file).exists() {
+            std::fs::remove_file(server_log_file).unwrap();
+        }
+        drop(lock);
+    }
 
 }
