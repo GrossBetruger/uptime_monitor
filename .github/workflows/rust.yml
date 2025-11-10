@@ -21,6 +21,6 @@ jobs:
     - name: Clone Server 
       run: git clone https://github.com/GrossBetruger/uptime_server.git 
     - name: Spin Postgres DB
-      run: cd uptime_server; sh uptime_server/docker/postgres/run_postgres.sh; cd ..
+      run: cd uptime_server; sh docker/postgres/run_postgres.sh; cd ..
     - name: Run tests
       run: cargo test --verbose
