@@ -481,12 +481,17 @@ mod tests {
 
     // Global mutex to ensure only one test_server runs at a time
     static TEST_SERVER_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+    static SERVER_USER_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
     
     // Store the server process handle and reference count
     static TEST_SERVER_PROCESS: OnceLock<Arc<Mutex<Option<std::process::Child>>>> = OnceLock::new();
     static TEST_SERVER_REF_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-    struct TestServerGuard;
+    // Guard that holds the mutex lock for the entire test duration
+    // This ensures tests that use the server don't run in parallel
+    struct TestServerGuard {
+        _mutex_guard: std::sync::MutexGuard<'static, ()>,
+    }
 
     impl Drop for TestServerGuard {
         fn drop(&mut self) {
@@ -501,12 +506,18 @@ mod tests {
                         }
                     }
                 }
+                // Clean up logs/payload.log after all tests run
+                let server_log_file = "logs/payload.log";
+                if std::path::Path::new(server_log_file).exists() {
+                    let _ = std::fs::remove_file(server_log_file);
+                }
             }
         }
     }
 
     fn ensure_test_server_running() -> TestServerGuard {
-        let _guard = TEST_SERVER_MUTEX
+        // Acquire the mutex lock and hold it for the entire test duration
+        let mutex_guard = TEST_SERVER_MUTEX
             .get_or_init(|| Mutex::new(()))
             .lock()
             .unwrap();
@@ -519,7 +530,11 @@ mod tests {
 
         // Check if server is already running
         if TcpStream::connect_timeout(&"127.0.0.1:3000".parse().unwrap(), Duration::from_millis(100)).is_ok() {
-            return TestServerGuard; // Server is already running (possibly started by another test)
+            // Server is already running (possibly started by another test)
+            // Return guard holding the mutex to prevent parallel execution
+            return TestServerGuard {
+                _mutex_guard: mutex_guard,
+            };
         }
 
         // Start test_server binary
@@ -545,7 +560,9 @@ mod tests {
             }
         }
 
-        TestServerGuard
+        TestServerGuard {
+            _mutex_guard: mutex_guard,
+        }
     }
 
     fn rfc3339_to_unix(rfc3339_str: &str) -> Result<u64, String> {
@@ -904,6 +921,7 @@ mod tests {
 
     #[test]
     fn test_send_messages_to_test_server_with_mocked_internet() {
+        let lock = SERVER_USER_MUTEX.get_or_init(|| Mutex::new(())).lock().unwrap();
         // Ensure test_server is running (will reuse if already running)
         // The guard will ensure cleanup when this test finishes
         let _server_guard = ensure_test_server_running();
@@ -944,6 +962,20 @@ mod tests {
             );
         }
 
+        let server_log_file = "logs/payload.log";
+        assert!(std::path::Path::new(server_log_file).exists(), "server log file should exist");
+        let server_log_contents = std::fs::read_to_string(server_log_file).unwrap();
+        let server_log_lines: Vec<&str> = server_log_contents.lines().map(|line| line.trim()).collect();
+        assert_eq!(server_log_lines.len(), 2, "server log file should have 2 lines");
+        let expected_line1 = format!("{} {} {} {} {} online", now_unix(), chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true), user_name, public_ip, isn_info);
+        let expected_line2 = format!("{} {} {} {} {} online", now_unix(), chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true), user_name, public_ip, isn_info);
+        assert_eq!(server_log_lines[0], expected_line1);
+        assert_eq!(server_log_lines[1], expected_line2);
+
+        if std::path::Path::new(logger_file).exists() {
+            std::fs::remove_file(logger_file).unwrap();
+        }
+
         // Verify messages were sent successfully by checking the server logs
         // The test_server should have received the messages
         // We can verify by checking if the payload.log file exists and contains our messages
@@ -953,10 +985,16 @@ mod tests {
         if std::path::Path::new(logger_file).exists() {
             std::fs::remove_file(logger_file).unwrap();
         }
+
+        if std::path::Path::new(server_log_file).exists() {
+            std::fs::remove_file(server_log_file).unwrap();
+        }
+        drop(lock);
     }
 
     #[test]
     fn test_send_messages_to_test_server_with_mocked_internet_offline_then_online() {
+        let lock = SERVER_USER_MUTEX.get_or_init(|| Mutex::new(())).lock().unwrap();
         // Ensure test_server is running (will reuse if already running)
         // The guard will ensure cleanup when this test finishes
         let _server_guard = ensure_test_server_running();
@@ -1007,6 +1045,20 @@ mod tests {
         // Give server time to process
         std::thread::sleep(Duration::from_millis(5));
 
+        let server_log_file = "logs/payload.log";
+        assert!(std::path::Path::new(server_log_file).exists(), "server log file should exist");
+        let server_log_contents = std::fs::read_to_string(server_log_file).unwrap();
+        let server_log_lines: Vec<&str> = server_log_contents.lines().map(|line| line.trim()).collect();
+        assert_eq!(server_log_lines.len(), 3, "server log file should have 3 lines");
+
+        // online is actually reported first, then offline read from log and reported to server
+        let expected_line1 = format!("{} {} {} {} {} online", now_unix(), chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true), user_name, public_ip, isn_info);
+        let expected_line2 = format!("{} {} {} {} {} offline", now_unix(), chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true), user_name, public_ip, isn_info);
+        let expected_line3 = format!("{} {} {} {} {} offline", now_unix(), chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true), user_name, public_ip, isn_info);
+        assert_eq!(server_log_lines[0], expected_line1);
+        assert_eq!(server_log_lines[1], expected_line2);
+        assert_eq!(server_log_lines[2], expected_line3);
+
         // Verify that offline entries were logged and then reported when internet came back online
         // The offline log file should be empty or contain only unreported entries
         // (since online status should have reported the offline entries)
@@ -1015,5 +1067,12 @@ mod tests {
         if std::path::Path::new(logger_file).exists() {
             std::fs::remove_file(logger_file).unwrap();
         }
+
+        if std::path::Path::new(server_log_file).exists() {
+            std::fs::remove_file(server_log_file).unwrap();
+        }
+        drop(lock);
     }
+
+
 }
