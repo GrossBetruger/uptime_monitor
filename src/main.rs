@@ -518,10 +518,11 @@ mod tests {
 
     fn ensure_test_server_running() -> TestServerGuard {
         // Acquire the mutex lock and hold it for the entire test duration
+        // Handle PoisonError gracefully by recovering from it
         let mutex_guard = TEST_SERVER_MUTEX
             .get_or_init(|| Mutex::new(()))
             .lock()
-            .unwrap();
+            .unwrap_or_else(|e| e.into_inner());
 
         // Initialize the process storage if not already initialized
         TEST_SERVER_PROCESS.get_or_init(|| Arc::new(Mutex::new(None)));
@@ -540,9 +541,15 @@ mod tests {
 
         // Start test_server binary
         let test_server = env::var("TEST_SERVER").unwrap_or_else(|_| "./test_server".to_string());
-        let server_process = std::process::Command::new(&test_server)
+        let mut server_process = std::process::Command::new(&test_server)
             .spawn()
             .expect("Failed to start test_server");
+
+        // Check if process exited immediately with an error code
+        if let Ok(Some(status)) = server_process.try_wait() {
+            let exit_code = status.code().unwrap_or(-1);
+            panic!("test_server exited immediately with error code: {}", exit_code);
+        }
 
         // Wait for server to be ready
         let mut server_ready = false;
@@ -924,7 +931,7 @@ mod tests {
 
     #[test]
     fn test_send_messages_to_test_server_with_mocked_internet() {
-        let lock = SERVER_USER_MUTEX.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let lock = SERVER_USER_MUTEX.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner());
         // Ensure test_server is running (will reuse if already running)
         // The guard will ensure cleanup when this test finishes
         let _server_guard = ensure_test_server_running();
@@ -999,7 +1006,7 @@ mod tests {
 
     #[test]
     fn test_send_messages_to_test_server_with_mocked_internet_offline_then_online() {
-        let lock = SERVER_USER_MUTEX.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let lock = SERVER_USER_MUTEX.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner());
         // Ensure test_server is running (will reuse if already running)
         // The guard will ensure cleanup when this test finishes
         let _server_guard = ensure_test_server_running();
@@ -1083,7 +1090,7 @@ mod tests {
 
     #[test]
     fn test_send_messages_to_test_server_with_mocked_internet_flactuating() {
-        let lock = SERVER_USER_MUTEX.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let lock = SERVER_USER_MUTEX.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner());
 
        // Clean up server log file
        if std::path::Path::new("logs/payload.log").exists() {
