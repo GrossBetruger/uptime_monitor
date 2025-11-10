@@ -949,6 +949,8 @@ mod tests {
         }
 
         // Run two iterations with internet up
+        let unix = now_unix();
+        let iso = chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
         for _ in 0..2 {
             busy_loop_iteration(
                 net_timeout,
@@ -967,8 +969,8 @@ mod tests {
         let server_log_contents = std::fs::read_to_string(server_log_file).unwrap();
         let server_log_lines: Vec<&str> = server_log_contents.lines().map(|line| line.trim()).collect();
         assert_eq!(server_log_lines.len(), 2, "server log file should have 2 lines");
-        let expected_line1 = format!("{} {} {} {} {} online", now_unix(), chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true), user_name, public_ip, isn_info);
-        let expected_line2 = format!("{} {} {} {} {} online", now_unix(), chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true), user_name, public_ip, isn_info);
+        let expected_line1 = format!("{} {} {} {} {} online", unix, iso, user_name, public_ip, isn_info);
+        let expected_line2 = format!("{} {} {} {} {} online", unix, iso, user_name, public_ip, isn_info);
         assert_eq!(server_log_lines[0], expected_line1);
         assert_eq!(server_log_lines[1], expected_line2);
 
@@ -1029,6 +1031,8 @@ mod tests {
         }
 
         // Run three iterations: offline, offline, online
+        let unix = now_unix();
+        let iso = chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
         for _ in 0..3 {
             busy_loop_iteration(
                 net_timeout,
@@ -1052,9 +1056,9 @@ mod tests {
         assert_eq!(server_log_lines.len(), 3, "server log file should have 3 lines");
 
         // online is actually reported first, then offline read from log and reported to server
-        let expected_line1 = format!("{} {} {} {} {} online", now_unix(), chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true), user_name, public_ip, isn_info);
-        let expected_line2 = format!("{} {} {} {} {} offline", now_unix(), chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true), user_name, public_ip, isn_info);
-        let expected_line3 = format!("{} {} {} {} {} offline", now_unix(), chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true), user_name, public_ip, isn_info);
+        let expected_line1 = format!("{} {} {} {} {} online", unix, iso, user_name, public_ip, isn_info);
+        let expected_line2 = format!("{} {} {} {} {} offline", unix, iso, user_name, public_ip, isn_info);
+        let expected_line3 = format!("{} {} {} {} {} offline", unix, iso, user_name, public_ip, isn_info);
         assert_eq!(server_log_lines[0], expected_line1);
         assert_eq!(server_log_lines[1], expected_line2);
         assert_eq!(server_log_lines[2], expected_line3);
