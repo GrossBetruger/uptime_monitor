@@ -551,7 +551,7 @@ mod tests {
                 server_ready = true;
                 break;
             }
-            std::thread::sleep(Duration::from_millis(10));
+            std::thread::sleep(Duration::from_millis(100));
         }
         assert!(server_ready, "test_server failed to start within 3 seconds");
 
