@@ -2,6 +2,7 @@ use base64::{Engine as _, engine::general_purpose};
 use clap::Parser;
 use polars::prelude::CsvReadOptions;
 use polars::prelude::*;
+use std::env;
 use std::fs::File;
 use std::io::Cursor;
 use std::io::Write;
@@ -538,7 +539,8 @@ mod tests {
         }
 
         // Start test_server binary
-        let server_process = std::process::Command::new("./test_server")
+        let test_server = env::var("TEST_SERVER").unwrap_or_else(|_| "./test_server".to_string());
+        let server_process = std::process::Command::new(&test_server)
             .spawn()
             .expect("Failed to start test_server");
 
