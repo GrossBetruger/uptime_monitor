@@ -1152,10 +1152,10 @@ mod tests {
         
         for i in 0..20 {
             println!("server_log_lines[{}]: {}", &i, &server_log_lines[i]);
-            if i % 2 == 1 {
-                // assert!(server_log_lines[i].contains("online"));
+            if i % 2 == 0 {
+                assert!(server_log_lines[i].contains("online"));
             } else {
-                // assert!(server_log_lines[i].contains("offline"));
+                assert!(server_log_lines[i].contains("offline"));
             }
         }
 
