@@ -6,7 +6,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: gh release upload "$GITHUB_REF_NAME" "release_binaries/*" --clobber -R owner/repo
+      - run: gh release upload "$GITHUB_REF_NAME" "release_binaries/*"
         env:
           GH_TOKEN: ${{ github.token }}
 
