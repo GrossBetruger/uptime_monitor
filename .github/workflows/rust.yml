@@ -18,5 +18,9 @@ jobs:
     - uses: actions/checkout@v4
     - name: Build
       run: cargo build --verbose
+    - name: Build Server 
+      run: git clone https://github.com/GrossBetruger/uptime_server.git 
+      run: sh uptime_server/docker/postgres/run_postgres.sh
+
     - name: Run tests
       run: cargo test --verbose
