@@ -1,5 +1,9 @@
 use base64::{Engine as _, engine::general_purpose};
 use clap::Parser;
+#[cfg(test)]
+use mockall::predicate::*;
+#[cfg(test)]
+use mockall::*;
 use polars::prelude::CsvReadOptions;
 use polars::prelude::*;
 use std::fs::File;
@@ -8,10 +12,6 @@ use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH}; // brings `.decode()` into scope
-#[cfg(test)]
-use mockall::predicate::*;
-#[cfg(test)]
-use mockall::*;
 
 #[cfg(windows)]
 mod windows_util;
@@ -36,11 +36,10 @@ mod platform {
 pub use platform::KeepAwake;
 
 const COMPILED_USER_ID: &str = match option_env!("USER_NAME") {
-        Some(v) => v,
-        None => "OrenK",
-    };
+    Some(v) => v,
+    None => "OrenK",
+};
 
-    
 // Traits for dependency injection (used for testing)
 #[cfg_attr(test, automock)]
 trait InternetChecker {
@@ -114,7 +113,13 @@ fn _create_users_csv() -> PolarsResult<()> {
     Ok(())
 }
 
-fn parse_args() -> (Duration, String, Option<Option<String>>, bool, Option<String>) {
+fn parse_args() -> (
+    Duration,
+    String,
+    Option<Option<String>>,
+    bool,
+    Option<String>,
+) {
     let args = Args::parse();
     (
         Duration::from_secs(args.interval_seconds),
@@ -227,7 +232,14 @@ fn get_isn_info() -> String {
     isn_response.data.connection.org
 }
 
-fn report_main(logger_file: &str, url: &str, user_name: &str, public_ip: &str, isn_info: &str, status_reporter: &dyn StatusReporter) {
+fn report_main(
+    logger_file: &str,
+    url: &str,
+    user_name: &str,
+    public_ip: &str,
+    isn_info: &str,
+    status_reporter: &dyn StatusReporter,
+) {
     let (unix, iso) = now_unix_and_rfc3339();
     let status_text = "online";
     let line = format!(
@@ -251,7 +263,11 @@ fn report_main(logger_file: &str, url: &str, user_name: &str, public_ip: &str, i
                     if !line.ends_with("\n") {
                         line.push('\n');
                     }
-                    assert!(line.ends_with("\n"), "last char: {}", &line.chars().last().unwrap().to_string());
+                    assert!(
+                        line.ends_with("\n"),
+                        "last char: {}",
+                        &line.chars().last().unwrap().to_string()
+                    );
                     match status_reporter.report_status(&line, &url) {
                         Ok(_) => {
                             print!("{}", line);
@@ -270,7 +286,8 @@ fn report_main(logger_file: &str, url: &str, user_name: &str, public_ip: &str, i
             }
 
             if !unreported_offline.is_empty() {
-                std::fs::write(logger_file, unreported_offline.join("\n")).expect("failed to write unreported offline");
+                std::fs::write(logger_file, unreported_offline.join("\n"))
+                    .expect("failed to write unreported offline");
             }
         }
         Err(e) => {
@@ -376,7 +393,6 @@ fn add_user(new_user: Option<String>) -> Result<(), Box<dyn std::error::Error>> 
     Ok(())
 }
 
-
 fn busy_loop_iteration(
     net_timeout: Duration,
     logger_file: &str,
@@ -388,7 +404,14 @@ fn busy_loop_iteration(
     status_reporter: &dyn StatusReporter,
 ) {
     match internet_checker.is_internet_up(net_timeout) {
-        true => report_main(logger_file, &url, &user_name, &public_ip, &isn_info, status_reporter),
+        true => report_main(
+            logger_file,
+            &url,
+            &user_name,
+            &public_ip,
+            &isn_info,
+            status_reporter,
+        ),
         false => {
             let (unix, iso) = now_unix_and_rfc3339();
             let offline_line = format!(
@@ -403,7 +426,6 @@ fn busy_loop_iteration(
         }
     }
 }
-
 
 fn main() {
     // Don't let windows machines sleep
@@ -438,8 +460,8 @@ fn main() {
         let server_str = server_str_from_url(
             "https://raw.githubusercontent.com/GrossBetruger/uptime_monitor/main/server.txt",
         );
-        let deobfuscated_server_str =
-            deobfuscate_server_str(&server_str.trim()).expect("failed to deobfuscate server string");
+        let deobfuscated_server_str = deobfuscate_server_str(&server_str.trim())
+            .expect("failed to deobfuscate server string");
         println!("Server: {}", deobfuscated_server_str);
         deobfuscated_server_str
     };
@@ -501,14 +523,14 @@ fn main() {
 mod tests {
     use super::*;
     use regex::Regex;
-    use std::sync::{Arc, Mutex, OnceLock};
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::env;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex, OnceLock};
 
     // Global mutex to ensure only one test_server runs at a time
     static TEST_SERVER_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
     static SERVER_USER_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
-    
+
     // Store the server process handle and reference count
     static TEST_SERVER_PROCESS: OnceLock<Arc<Mutex<Option<std::process::Child>>>> = OnceLock::new();
     static TEST_SERVER_REF_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -556,7 +578,12 @@ mod tests {
         TEST_SERVER_REF_COUNT.fetch_add(1, Ordering::SeqCst);
 
         // Check if server is already running
-        if TcpStream::connect_timeout(&"127.0.0.1:3000".parse().unwrap(), Duration::from_millis(100)).is_ok() {
+        if TcpStream::connect_timeout(
+            &"127.0.0.1:3000".parse().unwrap(),
+            Duration::from_millis(100),
+        )
+        .is_ok()
+        {
             // Server is already running (possibly started by another test)
             // Return guard holding the mutex to prevent parallel execution
             return TestServerGuard {
@@ -573,13 +600,21 @@ mod tests {
         // Check if process exited immediately with an error code
         if let Ok(Some(status)) = server_process.try_wait() {
             let exit_code = status.code().unwrap_or(-1);
-            panic!("test_server exited immediately with error code: {}", exit_code);
+            panic!(
+                "test_server exited immediately with error code: {}",
+                exit_code
+            );
         }
 
         // Wait for server to be ready
         let mut server_ready = false;
         for _ in 0..30 {
-            if TcpStream::connect_timeout(&"127.0.0.1:3000".parse().unwrap(), Duration::from_millis(100)).is_ok() {
+            if TcpStream::connect_timeout(
+                &"127.0.0.1:3000".parse().unwrap(),
+                Duration::from_millis(100),
+            )
+            .is_ok()
+            {
                 server_ready = true;
                 break;
             }
@@ -625,7 +660,14 @@ mod tests {
         let public_ip = "127.0.0.1";
         let isn_info = "Israel";
         let status_reporter = DefaultStatusReporter;
-        report_main(logger_file, &url, &user_name, &public_ip, &isn_info, &status_reporter);
+        report_main(
+            logger_file,
+            &url,
+            &user_name,
+            &public_ip,
+            &isn_info,
+            &status_reporter,
+        );
     }
 
     #[test]
@@ -681,19 +723,16 @@ mod tests {
             .returning(move |_| {
                 *call_count.borrow_mut() += 1;
                 match *call_count.borrow() {
-                    1 | 2 => true,  // First two calls return true
+                    1 | 2 => true, // First two calls return true
                     _ => false,    // Remaining calls return false
                 }
             });
-                
 
         // When internet is up (first 2 calls), report_status should be called
         mock_status_reporter
             .expect_report_status()
             .times(2)
-            .withf(|line: &str, url: &str| {
-                line.contains("online") && !url.is_empty()
-            })
+            .withf(|line: &str, url: &str| line.contains("online") && !url.is_empty())
             .returning(|_, _| Ok(()));
 
         let net_timeout = Duration::from_secs(2);
@@ -750,9 +789,7 @@ mod tests {
         mock_status_reporter
             .expect_report_status()
             .times(3)
-            .withf(|line: &str, url: &str| {
-                line.contains("online") && !url.is_empty()
-            })
+            .withf(|line: &str, url: &str| line.contains("online") && !url.is_empty())
             .returning(|_, _| Ok(()));
 
         let net_timeout = Duration::from_secs(2);
@@ -797,9 +834,7 @@ mod tests {
             .returning(|_| false);
 
         // report_status should never be called when offline
-        mock_status_reporter
-            .expect_report_status()
-            .times(0);
+        mock_status_reporter.expect_report_status().times(0);
 
         let net_timeout = Duration::from_secs(2);
         let logger_file = "test_busy_loop_all_offline.log";
@@ -837,7 +872,6 @@ mod tests {
         assert_eq!(offline_lines.len(), 3, "Should have 3 offline entries");
         // Clean up
         std::fs::remove_file(logger_file).unwrap();
-
     }
 
     #[test]
@@ -892,7 +926,6 @@ mod tests {
                 &mock_status_reporter,
             );
         }
-        
 
         // Verify offline log file contains 1 offline entry
         // (Call 2 logged offline, Call 3 reported it and deleted the file, Call 4 logged offline again)
@@ -902,7 +935,11 @@ mod tests {
             .lines()
             .filter(|line| line.contains("offline"))
             .collect();
-        assert_eq!(offline_lines.len(), 1, "Should have 1 offline entry (previous one was reported and deleted)");
+        assert_eq!(
+            offline_lines.len(),
+            1,
+            "Should have 1 offline entry (previous one was reported and deleted)"
+        );
 
         // Clean up
         std::fs::remove_file(logger_file).unwrap();
@@ -956,7 +993,10 @@ mod tests {
 
     #[test]
     fn test_send_messages_to_test_server_with_mocked_internet() {
-        let lock = SERVER_USER_MUTEX.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner());
+        let lock = SERVER_USER_MUTEX
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         // Ensure test_server is running (will reuse if already running)
         // The guard will ensure cleanup when this test finishes
         let _server_guard = ensure_test_server_running();
@@ -1000,12 +1040,28 @@ mod tests {
         }
 
         let server_log_file = "logs/payload.log";
-        assert!(std::path::Path::new(server_log_file).exists(), "server log file should exist");
+        assert!(
+            std::path::Path::new(server_log_file).exists(),
+            "server log file should exist"
+        );
         let server_log_contents = std::fs::read_to_string(server_log_file).unwrap();
-        let server_log_lines: Vec<&str> = server_log_contents.lines().map(|line| line.trim()).collect();
-        assert_eq!(server_log_lines.len(), 2, "server log file should have 2 lines");
-        let expected_line1 = format!("{} {} {} {} {} online", unix, iso, user_name, public_ip, isn_info);
-        let expected_line2 = format!("{} {} {} {} {} online", unix, iso, user_name, public_ip, isn_info);
+        let server_log_lines: Vec<&str> = server_log_contents
+            .lines()
+            .map(|line| line.trim())
+            .collect();
+        assert_eq!(
+            server_log_lines.len(),
+            2,
+            "server log file should have 2 lines"
+        );
+        let expected_line1 = format!(
+            "{} {} {} {} {} online",
+            unix, iso, user_name, public_ip, isn_info
+        );
+        let expected_line2 = format!(
+            "{} {} {} {} {} online",
+            unix, iso, user_name, public_ip, isn_info
+        );
         assert_eq!(server_log_lines[0], expected_line1);
         assert_eq!(server_log_lines[1], expected_line2);
 
@@ -1031,7 +1087,10 @@ mod tests {
 
     #[test]
     fn test_send_messages_to_test_server_with_mocked_internet_offline_then_online() {
-        let lock = SERVER_USER_MUTEX.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner());
+        let lock = SERVER_USER_MUTEX
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         // Ensure test_server is running (will reuse if already running)
         // The guard will ensure cleanup when this test finishes
         let _server_guard = ensure_test_server_running();
@@ -1048,8 +1107,8 @@ mod tests {
             .returning(move |_| {
                 *call_count.borrow_mut() += 1;
                 match *call_count.borrow() {
-                    1 | 2 => false,  // First two calls: offline
-                    _ => true,       // Third call: online (will report offline entries)
+                    1 | 2 => false, // First two calls: offline
+                    _ => true,      // Third call: online (will report offline entries)
                 }
             });
 
@@ -1085,15 +1144,34 @@ mod tests {
         std::thread::sleep(Duration::from_millis(5));
 
         let server_log_file = "logs/payload.log";
-        assert!(std::path::Path::new(server_log_file).exists(), "server log file should exist");
+        assert!(
+            std::path::Path::new(server_log_file).exists(),
+            "server log file should exist"
+        );
         let server_log_contents = std::fs::read_to_string(server_log_file).unwrap();
-        let server_log_lines: Vec<&str> = server_log_contents.lines().map(|line| line.trim()).collect();
-        assert_eq!(server_log_lines.len(), 3, "server log file should have 3 lines");
+        let server_log_lines: Vec<&str> = server_log_contents
+            .lines()
+            .map(|line| line.trim())
+            .collect();
+        assert_eq!(
+            server_log_lines.len(),
+            3,
+            "server log file should have 3 lines"
+        );
 
         // online is actually reported first, then offline read from log and reported to server
-        let expected_line1 = format!("{} {} {} {} {} online", unix, iso, user_name, public_ip, isn_info);
-        let expected_line2 = format!("{} {} {} {} {} offline", unix, iso, user_name, public_ip, isn_info);
-        let expected_line3 = format!("{} {} {} {} {} offline", unix, iso, user_name, public_ip, isn_info);
+        let expected_line1 = format!(
+            "{} {} {} {} {} online",
+            unix, iso, user_name, public_ip, isn_info
+        );
+        let expected_line2 = format!(
+            "{} {} {} {} {} offline",
+            unix, iso, user_name, public_ip, isn_info
+        );
+        let expected_line3 = format!(
+            "{} {} {} {} {} offline",
+            unix, iso, user_name, public_ip, isn_info
+        );
         assert_eq!(server_log_lines[0], expected_line1);
         assert_eq!(server_log_lines[1], expected_line2);
         assert_eq!(server_log_lines[2], expected_line3);
@@ -1115,11 +1193,14 @@ mod tests {
 
     #[test]
     fn test_send_messages_to_test_server_with_mocked_internet_flactuating() {
-        let lock = SERVER_USER_MUTEX.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner());
+        let lock = SERVER_USER_MUTEX
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
 
-       // Clean up server log file
-       if std::path::Path::new("logs/payload.log").exists() {
-        std::fs::remove_file("logs/payload.log").expect("Failed to remove server log file");
+        // Clean up server log file
+        if std::path::Path::new("logs/payload.log").exists() {
+            std::fs::remove_file("logs/payload.log").expect("Failed to remove server log file");
         }
 
         // Ensure test_server is running (will reuse if already running)
@@ -1140,14 +1221,13 @@ mod tests {
                 *call_count.borrow() % 2 == 0 // Even calls return true, odd calls return false (online must be first)
             });
 
-       
         let net_timeout = Duration::from_secs(2);
         let logger_file = "test_server_integration_flactuating.log";
         let url = "http://127.0.0.1:3000/ingest";
         let user_name = "TestUser";
         let public_ip = "192.168.1.100";
         let isn_info = "TestISP";
-        
+
         // Clean up any existing test log file
         if std::path::Path::new(logger_file).exists() {
             std::fs::remove_file(logger_file).unwrap();
@@ -1170,11 +1250,21 @@ mod tests {
         std::thread::sleep(Duration::from_millis(5));
 
         let server_log_file = "logs/payload.log";
-        assert!(std::path::Path::new(server_log_file).exists(), "server log file should exist");
+        assert!(
+            std::path::Path::new(server_log_file).exists(),
+            "server log file should exist"
+        );
         let server_log_contents = std::fs::read_to_string(server_log_file).unwrap();
-        let server_log_lines: Vec<&str> = server_log_contents.lines().map(|line| line.trim()).collect();
-        assert_eq!(server_log_lines.len(), 20, "server log file should have 20 lines");
-        
+        let server_log_lines: Vec<&str> = server_log_contents
+            .lines()
+            .map(|line| line.trim())
+            .collect();
+        assert_eq!(
+            server_log_lines.len(),
+            20,
+            "server log file should have 20 lines"
+        );
+
         for i in 0..20 {
             println!("server_log_lines[{}]: {}", &i, &server_log_lines[i]);
             if i % 2 == 0 {
@@ -1194,5 +1284,4 @@ mod tests {
         }
         drop(lock);
     }
-
 }
