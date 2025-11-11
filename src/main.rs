@@ -406,9 +406,9 @@ fn busy_loop_iteration(
 
 
 fn main() {
-    let display_off = true;
-    let _keep_awake = KeepAwake::try_new(display_off).expect("Failed to initialize KeepAwake");
-    // Keep the system awake, but allow the display to sleep:
+    // Don't let windows machines sleep
+    let display_on = true;
+    let _keep_awake = KeepAwake::try_new(display_on).expect("Failed to initialize KeepAwake");
 
     _create_users_csv().unwrap();
     let (interval, user_arg, add_user_arg, test, url_override) = parse_args();
