@@ -2,24 +2,45 @@ use base64::{Engine as _, engine::general_purpose};
 use clap::Parser;
 use polars::prelude::CsvReadOptions;
 use polars::prelude::*;
-use std::env;
 use std::fs::File;
 use std::io::Cursor;
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH}; // brings `.decode()` into scope
-
 #[cfg(test)]
 use mockall::predicate::*;
 #[cfg(test)]
 use mockall::*;
 
-const COMPILED_USER_ID: &str = match option_env!("USER_NAME") {
-    Some(v) => v,
-    None => "OrenK",
-};
+#[cfg(windows)]
+mod windows_util;
 
+#[cfg(windows)]
+pub use windows_util::KeepAwake;
+
+#[cfg(not(windows))]
+mod platform {
+    /// No-op guard for non-Windows platforms.
+    #[derive(Debug, Clone, Copy)]
+    pub struct KeepAwake;
+
+    impl KeepAwake {
+        pub fn try_new(_keep_display_on: bool) -> std::io::Result<Self> {
+            Ok(KeepAwake)
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub use platform::KeepAwake;
+
+const COMPILED_USER_ID: &str = match option_env!("USER_NAME") {
+        Some(v) => v,
+        None => "OrenK",
+    };
+
+    
 // Traits for dependency injection (used for testing)
 #[cfg_attr(test, automock)]
 trait InternetChecker {
@@ -148,7 +169,7 @@ fn log_offline(logger_file: &str, line: &str) -> Result<(), String> {
 }
 
 fn report_status(line: &str, url: &str) -> Result<(), String> {
-    let timeout = Duration::from_secs(5);
+    let timeout = Duration::from_secs(3);
 
     let client = reqwest::blocking::Client::builder()
         .timeout(timeout)
@@ -260,7 +281,6 @@ fn report_main(logger_file: &str, url: &str, user_name: &str, public_ip: &str, i
                 e,
                 public_ip
             );
-            // log_offline(&logger_file, &line).expect("failed to log offline");
         }
     }
 }
@@ -386,6 +406,10 @@ fn busy_loop_iteration(
 
 
 fn main() {
+    let display_off = true;
+    let _keep_awake = KeepAwake::try_new(display_off).expect("Failed to initialize KeepAwake");
+    // Keep the system awake, but allow the display to sleep:
+
     _create_users_csv().unwrap();
     let (interval, user_arg, add_user_arg, test, url_override) = parse_args();
 
@@ -479,6 +503,7 @@ mod tests {
     use regex::Regex;
     use std::sync::{Arc, Mutex, OnceLock};
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::env;
 
     // Global mutex to ensure only one test_server runs at a time
     static TEST_SERVER_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
