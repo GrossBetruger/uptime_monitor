@@ -992,6 +992,131 @@ mod tests {
     }
 
     #[test]
+    fn test_report_main_400_bad_request() {
+        // Test that 400 Bad Request errors are handled gracefully
+        let mut mock_status_reporter = MockStatusReporter::new();
+        let logger_file = "test_400_bad_request.log";
+        let url = "http://test.example.com/status";
+        let user_name = "TestUser";
+        let public_ip = "192.168.1.1";
+        let isn_info = "TestISP";
+
+        // Clean up any existing test log file
+        if std::path::Path::new(logger_file).exists() {
+            std::fs::remove_file(logger_file).unwrap();
+        }
+
+        // Create offline.log with some entries
+        let offline_line1 = "1730336000 2025-02-28T12:53:20+02:00 TestUser 192.168.1.1 TestISP offline\n";
+        let offline_line2 = "1730336001 2025-02-28T12:53:21+02:00 TestUser 192.168.1.1 TestISP offline\n";
+        std::fs::write(logger_file, format!("{}{}", offline_line1, offline_line2))
+            .expect("failed to write test offline log");
+
+        // Mock report_status to return 400 Bad Request for initial online status
+        mock_status_reporter
+            .expect_report_status()
+            .times(1)
+            .withf(|line: &str, url: &str| line.contains("online") && !url.is_empty())
+            .returning(|_, _| Err("server responded with 400 Bad Request: Invalid request format".to_string()));
+
+        // Call report_main - should handle the error gracefully
+        report_main(
+            logger_file,
+            url,
+            user_name,
+            public_ip,
+            isn_info,
+            &mock_status_reporter,
+        );
+
+        // Verify that offline.log still exists (not processed because initial report failed)
+        assert!(
+            std::path::Path::new(logger_file).exists(),
+            "offline.log should still exist when initial report fails"
+        );
+
+        // Clean up
+        if std::path::Path::new(logger_file).exists() {
+            std::fs::remove_file(logger_file).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_report_main_400_bad_request_on_offline_entries() {
+        // Test that offline entries that fail with 400 are preserved in offline.log
+        let mut mock_status_reporter = MockStatusReporter::new();
+        let logger_file = "test_400_offline_entries.log";
+        let url = "http://test.example.com/status";
+        let user_name = "TestUser";
+        let public_ip = "192.168.1.1";
+        let isn_info = "TestISP";
+
+        // Clean up any existing test log file
+        if std::path::Path::new(logger_file).exists() {
+            std::fs::remove_file(logger_file).unwrap();
+        }
+
+        // Create offline.log with some entries
+        let offline_line1 = "1730336000 2025-02-28T12:53:20+02:00 TestUser 192.168.1.1 TestISP offline\n";
+        let offline_line2 = "1730336001 2025-02-28T12:53:21+02:00 TestUser 192.168.1.1 TestISP offline\n";
+        std::fs::write(logger_file, format!("{}{}", offline_line1, offline_line2))
+            .expect("failed to write test offline log");
+
+        // Mock report_status: initial online status succeeds, but offline entries fail with 400
+        let call_count = std::cell::RefCell::new(0);
+        mock_status_reporter
+            .expect_report_status()
+            .times(3)
+            .returning(move |line: &str, _url: &str| {
+                *call_count.borrow_mut() += 1;
+                if line.contains("online") {
+                    Ok(()) // Initial online status succeeds
+                } else {
+                    // Offline entries fail with 400
+                    Err(format!(
+                        "server responded with 400 Bad Request: Invalid offline entry format"
+                    ))
+                }
+            });
+
+        // Call report_main
+        report_main(
+            logger_file,
+            url,
+            user_name,
+            public_ip,
+            isn_info,
+            &mock_status_reporter,
+        );
+
+        // Verify that offline.log still exists with the failed entries
+        assert!(
+            std::path::Path::new(logger_file).exists(),
+            "offline.log should exist with unreported entries"
+        );
+        let log_contents = std::fs::read_to_string(logger_file).unwrap();
+        assert!(
+            log_contents.contains("offline"),
+            "offline.log should contain offline entries that failed"
+        );
+        // Verify both offline entries are preserved
+        let offline_lines: Vec<&str> = log_contents
+            .lines()
+            .filter(|line| line.contains("offline"))
+            .collect();
+        assert_eq!(
+            offline_lines.len(),
+            2,
+            "Both offline entries should be preserved after 400 error"
+        );
+
+        // Clean up
+        if std::path::Path::new(logger_file).exists() {
+            std::fs::remove_file(logger_file).unwrap();
+        }
+    }
+
+    #[test]
     fn test_send_messages_to_test_server_with_mocked_internet() {
         let lock = SERVER_USER_MUTEX
             .get_or_init(|| Mutex::new(()))
