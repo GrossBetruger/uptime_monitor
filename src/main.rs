@@ -432,7 +432,7 @@ fn main() {
     let display_on = true;
     let _keep_awake = KeepAwake::try_new(display_on).expect("Failed to initialize KeepAwake");
 
-    _create_users_csv().unwrap();
+    // _create_users_csv().unwrap();
     let (interval, user_arg, add_user_arg, test, url_override) = parse_args();
 
     // If add-user argument is present, run add_user and exit
