@@ -146,6 +146,7 @@ fn is_internet_up(timeout: Duration) -> bool {
     false
 }
 
+
 fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -691,6 +692,78 @@ mod tests {
     fn test_is_internet_up() {
         let result = is_internet_up(Duration::from_secs(2));
         assert!(result);
+    }
+
+    #[test]
+    fn test_is_internet_up_performance() {
+        use std::time::Instant;
+        
+        let timeout = Duration::from_secs(2);
+        let num_iterations = 30;
+        let mut durations = Vec::new();
+        
+        // Run the function multiple times and collect durations
+        for i in 0..num_iterations {
+            let start = Instant::now();
+            let result = is_internet_up(timeout);
+            let duration = start.elapsed();
+            
+            // Verify the function completed successfully
+            assert!(result, "is_internet_up should return true when internet is available (iteration {})", i + 1);
+            
+            durations.push(duration.as_nanos() as f64);
+        }
+        
+        // Calculate average
+        let sum: f64 = durations.iter().sum();
+        let average_nanos = sum / num_iterations as f64;
+        let average = Duration::from_nanos(average_nanos as u64);
+        
+        // Calculate standard deviation
+        let variance: f64 = durations
+            .iter()
+            .map(|&x| {
+                let diff = x - average_nanos;
+                diff * diff
+            })
+            .sum::<f64>()
+            / num_iterations as f64;
+        let std_dev_nanos = variance.sqrt();
+        let std_dev = Duration::from_nanos(std_dev_nanos as u64);
+        
+        // Print statistics
+        println!("is_internet_up performance ({} iterations):", num_iterations);
+        println!("  Average: {:?} ({:.2} ms)", average, average_nanos / 1_000_000.0);
+        println!("  Std Dev: {:?} ({:.2} ms)", std_dev, std_dev_nanos / 1_000_000.0);
+        println!("  Min: {:?} ({:.2} ms)", 
+            Duration::from_nanos(durations.iter().min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap().clone() as u64),
+            durations.iter().min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap() / 1_000_000.0);
+        println!("  Max: {:?} ({:.2} ms)", 
+            Duration::from_nanos(durations.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap().clone() as u64),
+            durations.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap() / 1_000_000.0);
+        
+        // Assert that average completes faster than the timeout
+        assert!(
+            average < timeout,
+            "Average duration ({:?}) should be faster than timeout ({:?})",
+            average,
+            timeout
+        );
+        
+        // Assert that average is reasonably fast (under 30ms as per user's requirement)
+        assert!(
+            average < Duration::from_millis(15),
+            "Average duration should be under 15ms when internet is up, but was {:?}",
+            average
+        );
+
+        // Assert coefficient of variation is reasonably low (under 1)
+        let coefficient_of_variation = std_dev.as_millis() as f64 / average.as_millis() as f64;
+        assert!(
+            coefficient_of_variation < 1.0,
+            "Coefficient of variation should be under 1, but was {:?}",
+            coefficient_of_variation
+        );
     }
 
     #[test]
