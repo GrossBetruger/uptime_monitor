@@ -146,7 +146,6 @@ fn is_internet_up(timeout: Duration) -> bool {
     false
 }
 
-
 fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -697,28 +696,32 @@ mod tests {
     #[test]
     fn test_is_internet_up_performance() {
         use std::time::Instant;
-        
+
         let timeout = Duration::from_secs(2);
         let num_iterations = 30;
         let mut durations = Vec::new();
-        
+
         // Run the function multiple times and collect durations
         for i in 0..num_iterations {
             let start = Instant::now();
             let result = is_internet_up(timeout);
             let duration = start.elapsed();
-            
+
             // Verify the function completed successfully
-            assert!(result, "is_internet_up should return true when internet is available (iteration {})", i + 1);
-            
+            assert!(
+                result,
+                "is_internet_up should return true when internet is available (iteration {})",
+                i + 1
+            );
+
             durations.push(duration.as_nanos() as f64);
         }
-        
+
         // Calculate average
         let sum: f64 = durations.iter().sum();
         let average_nanos = sum / num_iterations as f64;
         let average = Duration::from_nanos(average_nanos as u64);
-        
+
         // Calculate standard deviation
         let variance: f64 = durations
             .iter()
@@ -730,18 +733,53 @@ mod tests {
             / num_iterations as f64;
         let std_dev_nanos = variance.sqrt();
         let std_dev = Duration::from_nanos(std_dev_nanos as u64);
-        
+
         // Print statistics
-        println!("is_internet_up performance ({} iterations):", num_iterations);
-        println!("  Average: {:?} ({:.2} ms)", average, average_nanos / 1_000_000.0);
-        println!("  Std Dev: {:?} ({:.2} ms)", std_dev, std_dev_nanos / 1_000_000.0);
-        println!("  Min: {:?} ({:.2} ms)", 
-            Duration::from_nanos(durations.iter().min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap().clone() as u64),
-            durations.iter().min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap() / 1_000_000.0);
-        println!("  Max: {:?} ({:.2} ms)", 
-            Duration::from_nanos(durations.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap().clone() as u64),
-            durations.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap() / 1_000_000.0);
-        
+        println!(
+            "is_internet_up performance ({} iterations):",
+            num_iterations
+        );
+        println!(
+            "  Average: {:?} ({:.2} ms)",
+            average,
+            average_nanos / 1_000_000.0
+        );
+        println!(
+            "  Std Dev: {:?} ({:.2} ms)",
+            std_dev,
+            std_dev_nanos / 1_000_000.0
+        );
+        println!(
+            "  Min: {:?} ({:.2} ms)",
+            Duration::from_nanos(
+                durations
+                    .iter()
+                    .min_by(|a, b| a.partial_cmp(b).unwrap())
+                    .unwrap()
+                    .clone() as u64
+            ),
+            durations
+                .iter()
+                .min_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap()
+                / 1_000_000.0
+        );
+        println!(
+            "  Max: {:?} ({:.2} ms)",
+            Duration::from_nanos(
+                durations
+                    .iter()
+                    .max_by(|a, b| a.partial_cmp(b).unwrap())
+                    .unwrap()
+                    .clone() as u64
+            ),
+            durations
+                .iter()
+                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap()
+                / 1_000_000.0
+        );
+
         // Assert that average completes faster than the timeout
         assert!(
             average < timeout,
@@ -749,7 +787,7 @@ mod tests {
             average,
             timeout
         );
-        
+
         // Assert that average is reasonably fast (under 30ms as per user's requirement)
         assert!(
             average < Duration::from_millis(15),
@@ -1081,8 +1119,10 @@ mod tests {
         }
 
         // Create offline.log with some entries
-        let offline_line1 = "1730336000 2025-02-28T12:53:20+02:00 TestUser 192.168.1.1 TestISP offline\n";
-        let offline_line2 = "1730336001 2025-02-28T12:53:21+02:00 TestUser 192.168.1.1 TestISP offline\n";
+        let offline_line1 =
+            "1730336000 2025-02-28T12:53:20+02:00 TestUser 192.168.1.1 TestISP offline\n";
+        let offline_line2 =
+            "1730336001 2025-02-28T12:53:21+02:00 TestUser 192.168.1.1 TestISP offline\n";
         std::fs::write(logger_file, format!("{}{}", offline_line1, offline_line2))
             .expect("failed to write test offline log");
 
@@ -1091,7 +1131,9 @@ mod tests {
             .expect_report_status()
             .times(1)
             .withf(|line: &str, url: &str| line.contains("online") && !url.is_empty())
-            .returning(|_, _| Err("server responded with 400 Bad Request: Invalid request format".to_string()));
+            .returning(|_, _| {
+                Err("server responded with 400 Bad Request: Invalid request format".to_string())
+            });
 
         // Call report_main - should handle the error gracefully
         report_main(
@@ -1131,8 +1173,10 @@ mod tests {
         }
 
         // Create offline.log with some entries
-        let offline_line1 = "1730336000 2025-02-28T12:53:20+02:00 TestUser 192.168.1.1 TestISP offline\n";
-        let offline_line2 = "1730336001 2025-02-28T12:53:21+02:00 TestUser 192.168.1.1 TestISP offline\n";
+        let offline_line1 =
+            "1730336000 2025-02-28T12:53:20+02:00 TestUser 192.168.1.1 TestISP offline\n";
+        let offline_line2 =
+            "1730336001 2025-02-28T12:53:21+02:00 TestUser 192.168.1.1 TestISP offline\n";
         std::fs::write(logger_file, format!("{}{}", offline_line1, offline_line2))
             .expect("failed to write test offline log");
 
