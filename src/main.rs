@@ -393,6 +393,7 @@ fn add_user(new_user: Option<String>) -> Result<(), Box<dyn std::error::Error>> 
     Ok(())
 }
 
+#[inline]
 fn busy_loop_iteration(
     net_timeout: Duration,
     logger_file: &str,
