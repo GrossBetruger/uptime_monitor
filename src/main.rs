@@ -6,10 +6,12 @@ use mockall::predicate::*;
 use mockall::*;
 use polars::prelude::CsvReadOptions;
 use polars::prelude::*;
+use std::fmt;
 use std::fs::File;
 use std::io::Cursor;
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
+use std::str::FromStr;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH}; // brings `.decode()` into scope
 
@@ -48,7 +50,7 @@ trait InternetChecker {
 
 #[cfg_attr(test, automock)]
 trait StatusReporter {
-    fn report_status(&self, line: &str, url: &str) -> Result<(), String>;
+    fn report_status(&self, line: &Line, url: &str) -> Result<(), String>;
 }
 
 // Default implementations using the original functions
@@ -61,7 +63,7 @@ impl InternetChecker for DefaultInternetChecker {
 
 struct DefaultStatusReporter;
 impl StatusReporter for DefaultStatusReporter {
-    fn report_status(&self, line: &str, url: &str) -> Result<(), String> {
+    fn report_status(&self, line: &Line, url: &str) -> Result<(), String> {
         report_status(line, url)
     }
 }
@@ -88,6 +90,66 @@ struct Args {
     /// Optional URL to override the URL from deobfuscation
     #[arg(long, value_name = "URL")]
     url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Line {
+    unix: u64,
+    iso: String,
+    user_name: String,
+    public_ip: String,
+    isn_info: String,
+    status: String,
+}
+
+impl FromStr for Line {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim_end_matches('\n').trim();
+        let parts: Vec<&str> = s.split_whitespace().collect();
+        
+        // Need at least 6 fields: unix, iso, user_name, public_ip, isn_info (at least 1 word), status
+        if parts.len() < 6 {
+            return Err(format!(
+                "Expected at least 6 space-separated fields, got {}: {}",
+                parts.len(),
+                s
+            ));
+        }
+
+        let unix = parts[0]
+            .parse::<u64>()
+            .map_err(|e| format!("Failed to parse unix timestamp: {}", e))?;
+
+        // Format: unix iso user_name public_ip isn_info... status
+        // Fields:  0    1   2         3         4..n-1      n-1 (last)
+        let iso = parts[1].to_string();
+        let user_name = parts[2].to_string();
+        let public_ip = parts[3].to_string();
+        let status = parts[parts.len() - 1].to_string();
+        // isn_info is everything between public_ip and status
+        let isn_info = parts[4..parts.len() - 1].join(" ");
+
+        Ok(Line {
+            unix,
+            iso,
+            user_name,
+            public_ip,
+            isn_info,
+            status,
+        })
+    }
+}
+
+impl fmt::Display for Line {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} {} {} {} {} {}\n",
+            self.unix, self.iso, self.user_name, self.public_ip, self.isn_info, self.status
+        )
+    }
 }
 
 fn _create_users_csv() -> PolarsResult<()> {
@@ -159,7 +221,7 @@ fn now_unix_and_rfc3339() -> (u64, String) {
     (unix, iso)
 }
 
-fn log_offline(logger_file: &str, line: &str) -> Result<(), String> {
+fn log_offline(logger_file: &str, line: &Line) -> Result<(), String> {
     // create file if not exists
     if !std::path::Path::new(logger_file).exists() {
         std::fs::File::create(logger_file).unwrap();
@@ -167,13 +229,13 @@ fn log_offline(logger_file: &str, line: &str) -> Result<(), String> {
     std::fs::OpenOptions::new()
         .append(true)
         .open(logger_file)
-        .and_then(|mut file| file.write_all(line.as_bytes()))
+        .and_then(|mut file| file.write_all(line.to_string().as_bytes()))
         .map_err(|e| format!("failed to write offline log: {e}"))?;
 
     Ok(())
 }
 
-fn report_status(line: &str, url: &str) -> Result<(), String> {
+fn report_status(line: &Line, url: &str) -> Result<(), String> {
     let timeout = Duration::from_secs(3);
 
     let client = reqwest::blocking::Client::builder()
@@ -242,10 +304,14 @@ fn report_main(
 ) {
     let (unix, iso) = now_unix_and_rfc3339();
     let status_text = "online";
-    let line = format!(
-        "{} {} {} {} {} {}\n",
-        unix, iso, user_name, public_ip, isn_info, status_text
-    );
+    let line = Line {
+        unix,
+        iso,
+        user_name: user_name.to_string(),
+        public_ip: public_ip.to_string(),
+        isn_info: isn_info.to_string(),
+        status: status_text.to_string(),
+    };
 
     match status_reporter.report_status(&line, &url) {
         Ok(_) => {
@@ -255,26 +321,24 @@ fn report_main(
                 status_text,
                 public_ip
             );
-            let mut unreported_offline: Vec<String> = Vec::new();
+            let mut unreported_offline: Vec<Line> = Vec::new();
             if std::path::Path::new(logger_file).exists() {
-                for line in std::fs::read_to_string(logger_file).unwrap().lines() {
-                    // add newline if not present
-                    let mut line = line.to_string();
-                    if !line.ends_with("\n") {
-                        line.push('\n');
-                    }
-                    assert!(
-                        line.ends_with("\n"),
-                        "last char: {}",
-                        &line.chars().last().unwrap().to_string()
-                    );
-                    match status_reporter.report_status(&line, &url) {
-                        Ok(_) => {
-                            print!("{}", line);
+                for line_str in std::fs::read_to_string(logger_file).unwrap().lines() {
+                    match Line::from_str(line_str) {
+                        Ok(parsed_line) => {
+                            match status_reporter.report_status(&parsed_line, &url) {
+                                Ok(_) => {
+                                    print!("{}", parsed_line);
+                                }
+                                Err(e) => {
+                                    eprintln!("failed to report status: {}", e);
+                                    unreported_offline.push(parsed_line);
+                                }
+                            }
                         }
                         Err(e) => {
-                            eprintln!("failed to report status: {}", e);
-                            unreported_offline.push(line.to_string());
+                            eprintln!("failed to parse line: {} - {}", line_str, e);
+                            // Skip malformed lines - cannot store in Vec<Line>
                         }
                     }
                     // sleep(Duration::from_secs(1));
@@ -286,7 +350,12 @@ fn report_main(
             }
 
             if !unreported_offline.is_empty() {
-                std::fs::write(logger_file, unreported_offline.join("\n"))
+                let content = unreported_offline
+                    .iter()
+                    .map(|line| line.to_string())
+                    .collect::<Vec<String>>()
+                    .join("");
+                std::fs::write(logger_file, content)
                     .expect("failed to write unreported offline");
             }
         }
@@ -415,10 +484,14 @@ fn busy_loop_iteration(
         ),
         false => {
             let (unix, iso) = now_unix_and_rfc3339();
-            let offline_line = format!(
-                "{} {} {} {} {} {}\n",
-                unix, iso, user_name, public_ip, isn_info, "offline"
-            );
+            let offline_line = Line {
+                unix,
+                iso,
+                user_name: user_name.to_string(),
+                public_ip: public_ip.to_string(),
+                isn_info: isn_info.to_string(),
+                status: "offline".to_string(),
+            };
             eprintln!(
                 "[{}] Internet is offline (logged locally to be reported later)",
                 now_unix()
@@ -679,9 +752,58 @@ mod tests {
     }
 
     #[test]
+    fn test_line_parsing() {
+        let line_str = "1730336000 2025-02-28T12:53:20+02:00 OrenK 127.0.0.1 Israel online\n";
+        let line = Line::from_str(line_str).unwrap();
+        assert_eq!(line.unix, 1730336000);
+        assert_eq!(line.iso, "2025-02-28T12:53:20+02:00");
+        assert_eq!(line.user_name, "OrenK");
+        assert_eq!(line.public_ip, "127.0.0.1");
+        assert_eq!(line.isn_info, "Israel");
+        assert_eq!(line.status, "online");
+        
+        // Test Display implementation
+        let formatted = line.to_string();
+        assert!(formatted.contains("1730336000"));
+        assert!(formatted.contains("online"));
+        assert!(formatted.ends_with('\n'));
+        
+        // Test parsing without newline
+        let line_str_no_newline = "1730336000 2025-02-28T12:53:20+02:00 OrenK 127.0.0.1 Israel offline";
+        let line2 = Line::from_str(line_str_no_newline).unwrap();
+        assert_eq!(line2.status, "offline");
+        
+        // Test parsing with multi-word isn_info
+        let line_str_multiword = "1763379734 2025-11-17T13:42:14+02:00 OrenK 185.114.120.246 Cato Networks Ltd offline";
+        let line3 = Line::from_str(line_str_multiword).unwrap();
+        assert_eq!(line3.unix, 1763379734);
+        assert_eq!(line3.iso, "2025-11-17T13:42:14+02:00");
+        assert_eq!(line3.user_name, "OrenK");
+        assert_eq!(line3.public_ip, "185.114.120.246");
+        assert_eq!(line3.isn_info, "Cato Networks Ltd");
+        assert_eq!(line3.status, "offline");
+        
+        // Test Display with multi-word isn_info
+        let formatted3 = line3.to_string();
+        assert!(formatted3.contains("Cato Networks Ltd"));
+        assert!(formatted3.contains("offline"));
+        
+        // Test parsing error
+        let invalid_line = "not enough fields";
+        assert!(Line::from_str(invalid_line).is_err());
+    }
+
+    #[test]
     fn test_log_offline() {
         let logger_file = "test_logger.log";
-        let line = "1730336000 2025-02-28T12:53:20+02:00 OrenK 127.0.0.1 Israel online\n";
+        let line = Line {
+            unix: 1730336000,
+            iso: "2025-02-28T12:53:20+02:00".to_string(),
+            user_name: "OrenK".to_string(),
+            public_ip: "127.0.0.1".to_string(),
+            isn_info: "Israel".to_string(),
+            status: "online".to_string(),
+        };
         log_offline(logger_file, &line).unwrap();
         assert!(std::path::Path::new(logger_file).exists());
         std::fs::remove_file(logger_file).unwrap();
@@ -844,7 +966,7 @@ mod tests {
         mock_status_reporter
             .expect_report_status()
             .times(2)
-            .withf(|line: &str, url: &str| line.contains("online") && !url.is_empty())
+            .withf(|line: &Line, url: &str| line.status == "online" && !url.is_empty())
             .returning(|_, _| Ok(()));
 
         let net_timeout = Duration::from_secs(2);
@@ -901,7 +1023,7 @@ mod tests {
         mock_status_reporter
             .expect_report_status()
             .times(3)
-            .withf(|line: &str, url: &str| line.contains("online") && !url.is_empty())
+            .withf(|line: &Line, url: &str| line.status == "online" && !url.is_empty())
             .returning(|_, _| Ok(()));
 
         let net_timeout = Duration::from_secs(2);
@@ -1008,8 +1130,8 @@ mod tests {
         mock_status_reporter
             .expect_report_status()
             .times(3)
-            .withf(|line: &str, url: &str| {
-                (!url.is_empty()) && (line.contains("online") || line.contains("offline"))
+            .withf(|line: &Line, url: &str| {
+                (!url.is_empty()) && (line.status == "online" || line.status == "offline")
             })
             .returning(|_, _| Ok(()));
 
@@ -1130,7 +1252,7 @@ mod tests {
         mock_status_reporter
             .expect_report_status()
             .times(1)
-            .withf(|line: &str, url: &str| line.contains("online") && !url.is_empty())
+            .withf(|line: &Line, url: &str| line.status == "online" && !url.is_empty())
             .returning(|_, _| {
                 Err("server responded with 400 Bad Request: Invalid request format".to_string())
             });
@@ -1185,9 +1307,9 @@ mod tests {
         mock_status_reporter
             .expect_report_status()
             .times(3)
-            .returning(move |line: &str, _url: &str| {
+            .returning(move |line: &Line, _url: &str| {
                 *call_count.borrow_mut() += 1;
-                if line.contains("online") {
+                if line.status == "online" {
                     Ok(()) // Initial online status succeeds
                 } else {
                     // Offline entries fail with 400
@@ -1229,6 +1351,110 @@ mod tests {
         );
 
         // Clean up
+        if std::path::Path::new(logger_file).exists() {
+            std::fs::remove_file(logger_file).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_report_main_parses_offline_log_with_multi_word_isn_info() {
+        // Test that report_main correctly parses offline log lines with multi-word isn_info
+        // This test would catch the bug where parsing failed for lines like:
+        // "1763379734 2025-11-17T13:42:14+02:00 OrenK 185.114.120.246 Cato Networks Ltd offline"
+        // 
+        // The test simulates the real flow:
+        // 1. Internet goes offline -> busy_loop_iteration logs entries with multi-word isn_info
+        // 2. Internet comes back online -> report_main parses and sends those entries
+        let mut mock_internet_checker = MockInternetChecker::new();
+        let mut mock_status_reporter = MockStatusReporter::new();
+        let logger_file = "test_multi_word_isn_info.log";
+        let url = "http://test.example.com/status";
+        let user_name = "OrenK";
+        let public_ip = "186.114.114.111";
+        let isn_info = "Hot or Not Ltd";
+
+        // Clean up any existing test log file
+        if std::path::Path::new(logger_file).exists() {
+            std::fs::remove_file(logger_file).unwrap();
+        }
+
+        // Step 1: Simulate internet going offline - this will create offline log entries
+        mock_internet_checker
+            .expect_is_internet_up()
+            .times(3)
+            .returning(|_| false); // Internet is offline
+
+        // report_status should not be called when offline
+        mock_status_reporter.expect_report_status().times(0);
+
+        let net_timeout = Duration::from_secs(2);
+        
+        // Run 3 iterations while offline - this will log entries with multi-word isn_info
+        for _ in 0..3 {
+            busy_loop_iteration(
+                net_timeout,
+                logger_file,
+                url,
+                user_name,
+                public_ip,
+                isn_info,
+                &mock_internet_checker,
+                &mock_status_reporter,
+            );
+        }
+
+        // Verify offline log file was created
+        assert!(
+            std::path::Path::new(logger_file).exists(),
+            "offline.log should be created when internet is offline"
+        );
+        let log_contents = std::fs::read_to_string(logger_file).unwrap();
+        let offline_lines: Vec<&str> = log_contents
+            .lines()
+            .filter(|line| line.contains("offline"))
+            .collect();
+        assert_eq!(
+            offline_lines.len(),
+            3,
+            "Should have 3 offline entries logged"
+        );
+
+        // Step 2: Simulate internet coming back online - report_main should parse and send entries
+        let call_count = std::cell::RefCell::new(0);
+        mock_status_reporter
+            .expect_report_status()
+            .times(4) // 1 online + 3 offline entries
+            .returning(move |line: &Line, _url: &str| {
+                *call_count.borrow_mut() += 1;
+                // Verify that lines are parsed correctly, especially multi-word isn_info
+                if line.status == "offline" {
+                    assert_eq!(
+                        line.isn_info, "Hot or Not Ltd",
+                        "isn_info should be parsed correctly with multiple words"
+                    );
+                    assert_eq!(line.user_name, "OrenK");
+                    assert_eq!(line.public_ip, "186.114.114.111");
+                }
+                Ok(())
+            });
+
+        // Call report_main - this should parse the offline log lines correctly
+        report_main(
+            logger_file,
+            url,
+            user_name,
+            public_ip,
+            isn_info,
+            &mock_status_reporter,
+        );
+
+        // Verify that offline.log was removed (all entries were successfully reported)
+        assert!(
+            !std::path::Path::new(logger_file).exists(),
+            "offline.log should be removed after all entries are successfully reported"
+        );
+
+        // Clean up (in case test fails)
         if std::path::Path::new(logger_file).exists() {
             std::fs::remove_file(logger_file).unwrap();
         }
