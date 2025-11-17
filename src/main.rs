@@ -108,7 +108,7 @@ impl FromStr for Line {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim_end_matches('\n').trim();
         let parts: Vec<&str> = s.split_whitespace().collect();
-        
+
         // Need at least 6 fields: unix, iso, user_name, public_ip, isn_info (at least 1 word), status
         if parts.len() < 6 {
             return Err(format!(
@@ -355,8 +355,7 @@ fn report_main(
                     .map(|line| line.to_string())
                     .collect::<Vec<String>>()
                     .join("");
-                std::fs::write(logger_file, content)
-                    .expect("failed to write unreported offline");
+                std::fs::write(logger_file, content).expect("failed to write unreported offline");
             }
         }
         Err(e) => {
@@ -761,20 +760,22 @@ mod tests {
         assert_eq!(line.public_ip, "127.0.0.1");
         assert_eq!(line.isn_info, "Israel");
         assert_eq!(line.status, "online");
-        
+
         // Test Display implementation
         let formatted = line.to_string();
         assert!(formatted.contains("1730336000"));
         assert!(formatted.contains("online"));
         assert!(formatted.ends_with('\n'));
-        
+
         // Test parsing without newline
-        let line_str_no_newline = "1730336000 2025-02-28T12:53:20+02:00 OrenK 127.0.0.1 Israel offline";
+        let line_str_no_newline =
+            "1730336000 2025-02-28T12:53:20+02:00 OrenK 127.0.0.1 Israel offline";
         let line2 = Line::from_str(line_str_no_newline).unwrap();
         assert_eq!(line2.status, "offline");
-        
+
         // Test parsing with multi-word isn_info
-        let line_str_multiword = "1763379734 2025-11-17T13:42:14+02:00 OrenK 185.114.120.246 Cato Networks Ltd offline";
+        let line_str_multiword =
+            "1763379734 2025-11-17T13:42:14+02:00 OrenK 185.114.120.246 Cato Networks Ltd offline";
         let line3 = Line::from_str(line_str_multiword).unwrap();
         assert_eq!(line3.unix, 1763379734);
         assert_eq!(line3.iso, "2025-11-17T13:42:14+02:00");
@@ -782,12 +783,12 @@ mod tests {
         assert_eq!(line3.public_ip, "185.114.120.246");
         assert_eq!(line3.isn_info, "Cato Networks Ltd");
         assert_eq!(line3.status, "offline");
-        
+
         // Test Display with multi-word isn_info
         let formatted3 = line3.to_string();
         assert!(formatted3.contains("Cato Networks Ltd"));
         assert!(formatted3.contains("offline"));
-        
+
         // Test parsing error
         let invalid_line = "not enough fields";
         assert!(Line::from_str(invalid_line).is_err());
@@ -1361,7 +1362,7 @@ mod tests {
         // Test that report_main correctly parses offline log lines with multi-word isn_info
         // This test would catch the bug where parsing failed for lines like:
         // "1763379734 2025-11-17T13:42:14+02:00 OrenK 185.114.120.246 Cato Networks Ltd offline"
-        // 
+        //
         // The test simulates the real flow:
         // 1. Internet goes offline -> busy_loop_iteration logs entries with multi-word isn_info
         // 2. Internet comes back online -> report_main parses and sends those entries
@@ -1388,7 +1389,7 @@ mod tests {
         mock_status_reporter.expect_report_status().times(0);
 
         let net_timeout = Duration::from_secs(2);
-        
+
         // Run 3 iterations while offline - this will log entries with multi-word isn_info
         for _ in 0..3 {
             busy_loop_iteration(
