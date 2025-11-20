@@ -235,7 +235,7 @@ fn log_offline(logger_file: &str, line: &Line) -> Result<(), String> {
     Ok(())
 }
 
-fn report_status(line: &Line, url: &str) -> Result<(), String> {
+fn perform_request_blocking(line: &Line, url: &str) -> Result<(), String> {
     let timeout = Duration::from_secs(3);
 
     let client = reqwest::blocking::Client::builder()
@@ -257,6 +257,21 @@ fn report_status(line: &Line, url: &str) -> Result<(), String> {
     }
 }
 
+fn report_status(line: &Line, url: &str) -> Result<(), String> {
+    if line.status == "online" {
+        let line = line.clone();
+        let url = url.to_string();
+        std::thread::spawn(move || {
+            if let Err(e) = perform_request_blocking(&line, &url) {
+                eprintln!("background report failed: {}", e);
+            }
+        });
+        Ok(())
+    } else {
+        perform_request_blocking(line, url)
+    }
+}
+
 fn get_public_ip() -> String {
     use serde::Deserialize;
 
@@ -265,7 +280,10 @@ fn get_public_ip() -> String {
         ip: String,
     }
 
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap();
     let resp = client
         .get("https://api.ipify.org?format=json")
         .send()
@@ -288,7 +306,10 @@ fn get_isn_info() -> String {
     struct IsnResponse {
         data: Data,
     }
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap();
     let resp = client.get("https://api.ipwho.org/me").send().unwrap();
     let isn_response: IsnResponse = resp.json().unwrap();
     isn_response.data.connection.org
@@ -1509,6 +1530,8 @@ mod tests {
             );
         }
 
+        std::thread::sleep(Duration::from_millis(1000));
+
         let server_log_file = "logs/payload.log";
         assert!(
             std::path::Path::new(server_log_file).exists(),
@@ -1611,7 +1634,7 @@ mod tests {
         }
 
         // Give server time to process
-        std::thread::sleep(Duration::from_millis(5));
+        std::thread::sleep(Duration::from_millis(1000));
 
         let server_log_file = "logs/payload.log";
         assert!(
@@ -1717,7 +1740,7 @@ mod tests {
         }
 
         // Give server time to process
-        std::thread::sleep(Duration::from_millis(5));
+        std::thread::sleep(Duration::from_millis(1000));
 
         let server_log_file = "logs/payload.log";
         assert!(
