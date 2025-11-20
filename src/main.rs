@@ -1758,14 +1758,18 @@ mod tests {
             "server log file should have 20 lines"
         );
 
-        for i in 0..20 {
-            println!("server_log_lines[{}]: {}", &i, &server_log_lines[i]);
-            if i % 2 == 0 {
-                assert!(server_log_lines[i].contains("online"));
+        //  count 10 online and 10 offline
+        let mut online_count = 0;
+        let mut offline_count = 0;
+        for line in server_log_lines {
+            if line.contains("online") {
+                online_count += 1;
             } else {
-                assert!(server_log_lines[i].contains("offline"));
+                offline_count += 1;
             }
         }
+        assert_eq!(online_count, 10, "should have 10 online entries");
+        assert_eq!(offline_count, 10, "should have 10 offline entries");
 
         // Clean up any existing test log file
         if std::path::Path::new(logger_file).exists() {
