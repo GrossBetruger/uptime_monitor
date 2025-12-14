@@ -294,25 +294,38 @@ fn get_public_ip() -> String {
 
 fn get_isn_info() -> String {
     use serde::Deserialize;
-    #[derive(Deserialize)]
+    #[derive(Deserialize, Debug)]
     struct Data {
         connection: Connection,
     }
-    #[derive(Deserialize)]
+    #[derive(Deserialize, Debug)]
     struct Connection {
-        org: String,
+        asn_org: String,
     }
     #[derive(Deserialize)]
     struct IsnResponse {
         data: Data,
     }
+
+    // Decode and reverse the API key
+    const ENCODED_KEY: &str = "MDk4ZGI1ZWZkYzFjYmQzNzZkM2YzZWM4NTYyNzgwMzNiMjVlZWI4MGMxYmQ5YjRjMTM1NDJiMmYwMDg0NTE5ZC5rcwo=";
+    let decoded = general_purpose::STANDARD
+        .decode(ENCODED_KEY)
+        .expect("failed to decode API key");
+    let decoded_str = String::from_utf8(decoded)
+        .expect("failed to convert API key to string");
+    let api_key: String = decoded_str.trim().chars().rev().collect();
+
+    let url = format!("https://api.ipwho.org/me?apiKey={}", api_key);
+
     let client = reqwest::blocking::Client::builder()
         .no_proxy()
         .build()
         .unwrap();
-    let resp = client.get("https://api.ipwho.org/me").send().unwrap();
-    let isn_response: IsnResponse = resp.json().unwrap();
-    isn_response.data.connection.org
+    let resp = client.get(&url).send().unwrap();
+    let isn_response: IsnResponse = resp.json().expect("failed to parse isn response");
+    // println!("[DEBUG] ISN data response: {:?}", isn_response.data.connection.asn_org);
+    isn_response.data.connection.asn_org
 }
 
 fn report_main(
