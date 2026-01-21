@@ -293,7 +293,64 @@ fn get_public_ip() -> String {
 }
 
 fn get_isn_info() -> String {
+    // Try free API first (ip-api.com), then fall back to ipwho.org
+    get_isn_info_from_ip_api().unwrap_or_else(|_| {
+        get_isn_info_from_ipwho().unwrap_or_else(|_| "Unknown".to_string())
+    })
+}
+
+/// Strip "AS<number> " prefix from ASN string if present
+/// e.g., "AS12400 Partner Communications Ltd." -> "Partner Communications Ltd."
+fn strip_asn_prefix(s: &str) -> String {
+    if s.starts_with("AS") {
+        s.split_once(' ')
+            .map(|(_, rest)| rest.to_string())
+            .unwrap_or_else(|| s.to_string())
+    } else {
+        s.to_string()
+    }
+}
+
+/// Free API - no key required (http only, 45 requests/minute limit)
+fn get_isn_info_from_ip_api() -> Result<String, Box<dyn std::error::Error>> {
     use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct IpApiResponse {
+        status: String,
+        #[serde(rename = "as")]
+        asn: Option<String>,
+        org: Option<String>,
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .no_proxy()
+        .build()?;
+
+    // ip-api.com is free but HTTP only (HTTPS requires paid plan)
+    let resp = client
+        .get("http://ip-api.com/json/?fields=status,as,org")
+        .send()?;
+
+    let response: IpApiResponse = resp.json()?;
+
+    if response.status == "success" {
+        // Prefer ASN info, strip prefix for consistency with previous format
+        let result = response
+            .asn
+            .map(|s| strip_asn_prefix(&s))
+            .or(response.org)
+            .unwrap_or_else(|| "Unknown".to_string());
+        Ok(result)
+    } else {
+        Err("ip-api request failed".into())
+    }
+}
+
+/// Fallback API with encoded key
+fn get_isn_info_from_ipwho() -> Result<String, Box<dyn std::error::Error>> {
+    use serde::Deserialize;
+
     #[derive(Deserialize, Debug)]
     struct Data {
         connection: Connection,
@@ -309,23 +366,18 @@ fn get_isn_info() -> String {
 
     // Decode and reverse the API key
     const ENCODED_KEY: &str = "MDk4ZGI1ZWZkYzFjYmQzNzZkM2YzZWM4NTYyNzgwMzNiMjVlZWI4MGMxYmQ5YjRjMTM1NDJiMmYwMDg0NTE5ZC5rcwo=";
-    let decoded = general_purpose::STANDARD
-        .decode(ENCODED_KEY)
-        .expect("failed to decode API key");
-    let decoded_str = String::from_utf8(decoded)
-        .expect("failed to convert API key to string");
+    let decoded = general_purpose::STANDARD.decode(ENCODED_KEY)?;
+    let decoded_str = String::from_utf8(decoded)?;
     let api_key: String = decoded_str.trim().chars().rev().collect();
 
     let url = format!("https://api.ipwho.org/me?apiKey={}", api_key);
 
     let client = reqwest::blocking::Client::builder()
         .no_proxy()
-        .build()
-        .unwrap();
-    let resp = client.get(&url).send().unwrap();
-    let isn_response: IsnResponse = resp.json().expect("failed to parse isn response");
-    // println!("[DEBUG] ISN data response: {:?}", isn_response.data.connection.asn_org);
-    isn_response.data.connection.asn_org
+        .build()?;
+    let resp = client.get(&url).send()?;
+    let isn_response: IsnResponse = resp.json()?;
+    Ok(isn_response.data.connection.asn_org)
 }
 
 fn report_main(
@@ -757,6 +809,42 @@ mod tests {
     fn test_get_isn_info() {
         let isn_info = get_isn_info();
         assert!(!isn_info.is_empty());
+    }
+
+    #[test]
+    fn test_strip_asn_prefix() {
+        // Test with AS prefix - should strip
+        assert_eq!(
+            strip_asn_prefix("AS12400 Partner Communications Ltd."),
+            "Partner Communications Ltd."
+        );
+        assert_eq!(
+            strip_asn_prefix("AS1234 Some ISP Name"),
+            "Some ISP Name"
+        );
+        assert_eq!(
+            strip_asn_prefix("AS999999 Single"),
+            "Single"
+        );
+
+        // Test without AS prefix - should return as-is
+        assert_eq!(
+            strip_asn_prefix("Partner Communications Ltd."),
+            "Partner Communications Ltd."
+        );
+        assert_eq!(
+            strip_asn_prefix("Cato Networks Ltd"),
+            "Cato Networks Ltd"
+        );
+        assert_eq!(
+            strip_asn_prefix("Israel"),
+            "Israel"
+        );
+
+        // Edge cases
+        assert_eq!(strip_asn_prefix("AS12345"), "AS12345"); // No space after AS number
+        assert_eq!(strip_asn_prefix(""), ""); // Empty string
+        assert_eq!(strip_asn_prefix("ASNOT A NUMBER"), "A NUMBER"); // Starts with AS but not a typical format
     }
 
     #[test]
