@@ -294,8 +294,10 @@ fn get_public_ip() -> String {
 
 fn get_isn_info() -> String {
     // Try free API first (ip-api.com), then fall back to ipwho.org
-    get_isn_info_from_ip_api().unwrap_or_else(|_| {
-        get_isn_info_from_ipwho().unwrap_or_else(|_| "Unknown".to_string())
+    get_isn_info_from_ip_api().unwrap_or_else(|e1| {
+        get_isn_info_from_ipwho().unwrap_or_else(|e2| {
+            panic!("failed to get ISN info from both APIs: ip-api: {}, ipwho: {}", e1, e2)
+        })
     })
 }
 
@@ -336,12 +338,11 @@ fn get_isn_info_from_ip_api() -> Result<String, Box<dyn std::error::Error>> {
 
     if response.status == "success" {
         // Prefer ASN info, strip prefix for consistency with previous format
-        let result = response
+        response
             .asn
             .map(|s| strip_asn_prefix(&s))
             .or(response.org)
-            .unwrap_or_else(|| "Unknown".to_string());
-        Ok(result)
+            .ok_or_else(|| "ip-api returned success but no asn or org field".into())
     } else {
         Err("ip-api request failed".into())
     }
